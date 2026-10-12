@@ -83,41 +83,71 @@ export function hit(strength) {
   thud.stop(t + 0.2);
 }
 
-// Engine: two buzzy oscillators through a filter; pitch and brightness follow the speed.
-export function engineStart() {
+// An engine: two buzzy oscillators through a filter; pitch and brightness follow the speed.
+// tune shifts the pitch a little so the rivals' engines do not all sound like the player's.
+function makeEngine(tune = 1) {
   const a = audio();
-  if (!a || engine) return;
+  if (!a) return null;
   const low = a.createOscillator(), high = a.createOscillator();
   const filter = a.createBiquadFilter(), gain = a.createGain();
+  const pan = a.createStereoPanner ? a.createStereoPanner() : null;
   low.type = 'sawtooth';
   high.type = 'square';
   filter.type = 'lowpass';
   gain.gain.value = 0;
   low.connect(filter);
   high.connect(filter);
-  filter.connect(gain).connect(master);
+  filter.connect(gain);
+  if (pan) gain.connect(pan).connect(master); else gain.connect(master);
   low.start();
   high.start();
-  engine = { low, high, filter, gain };
+  return { low, high, filter, gain, pan, tune };
+}
+
+// speed: 0..1.2 share of top speed. bright: extra sparkle (on the gas). volume: how loud.
+function tuneEngine(e, speed, bright, volume, side = 0) {
+  const t = ctx.currentTime, s = Math.max(0, Math.min(1.2, speed));
+  const f = (48 + 105 * s) * e.tune;
+  e.low.frequency.setTargetAtTime(f, t, 0.08);
+  e.high.frequency.setTargetAtTime(f * 1.5, t, 0.08);
+  e.filter.frequency.setTargetAtTime(350 + 1500 * s + bright, t, 0.1);
+  e.gain.gain.setTargetAtTime(volume, t, 0.1);
+  e.pan?.pan.setTargetAtTime(side, t, 0.1);
+}
+
+function stopEngine(e) {
+  e.gain.gain.setTargetAtTime(0, ctx.currentTime, 0.05);
+  e.low.stop(ctx.currentTime + 0.3);
+  e.high.stop(ctx.currentTime + 0.3);
+}
+
+// The player's engine, plus one for each rival.
+let rivals = [];
+export function engineStart(rivalCount = 0) {
+  if (engine) return;
+  engine = makeEngine();
+  if (!engine) return;
+  rivals = Array.from({ length: rivalCount }, (_, k) => makeEngine([0.84, 1.19, 0.93][k % 3]));
   engineSet(0, false);
 }
 
 // speed: 0..1 share of top speed. gas: is the driver on the throttle.
 export function engineSet(speed, gas) {
-  if (!engine) return;
-  const t = ctx.currentTime, s = Math.max(0, Math.min(1.2, speed));
-  const f = 48 + 105 * s;
-  engine.low.frequency.setTargetAtTime(f, t, 0.08);
-  engine.high.frequency.setTargetAtTime(f * 1.5, t, 0.08);
-  engine.filter.frequency.setTargetAtTime(350 + 1500 * s + (gas ? 400 : 0), t, 0.1);
-  engine.gain.gain.setTargetAtTime(gas ? 0.11 : 0.06, t, 0.1);
+  if (engine) tuneEngine(engine, speed, gas ? 400 : 0, gas ? 0.11 : 0.06);
+}
+
+// A rival's engine as heard from the player's car: loud when close, fading to nothing by about 60 m.
+// side: -1 (fully to the left) .. 1 (to the right).
+export function rivalSet(k, speed, distance, side) {
+  const e = engine && rivals[k];
+  if (!e) return;
+  const near = Math.max(0, 1 - distance / 60);
+  tuneEngine(e, speed, 200, 0.13 * near * near, side);
 }
 
 export function engineStop() {
   if (!engine) return;
-  const { low, high, gain } = engine;
+  for (const e of [engine, ...rivals]) stopEngine(e);
   engine = null;
-  gain.gain.setTargetAtTime(0, ctx.currentTime, 0.05);
-  low.stop(ctx.currentTime + 0.3);
-  high.stop(ctx.currentTime + 0.3);
+  rivals = [];
 }

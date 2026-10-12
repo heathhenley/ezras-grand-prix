@@ -2,12 +2,13 @@ import { Engine } from '@babylonjs/core/Engines/engine';
 import './style.css';
 
 import { loadSave, writeSave } from './save.js';
-import { isUnlocked, unlocksBetween, winsNeeded, itemName, KIND_LABEL } from './data.js';
+import { BODIES, COLORS, WHEELS, SPOILERS, isUnlocked, unlocksBetween, winsNeeded, itemName } from './data.js';
 import { MAX_LEVEL } from './ai.js';
 import { Showroom } from './showroom.js';
+import { PhotoBooth } from './thumbs.js';
 import { Race } from './race.js';
 import { bindTouchButtons, isTouchDevice, setTilt } from './input.js';
-import { menuHtml, garageHtml, hudHtml, makeHud, resultsHtml, lockedHtml } from './ui.js';
+import { menuHtml, garageHtml, hudHtml, makeHud, resultsHtml, prizeName } from './ui.js';
 import * as sound from './sound.js';
 
 const canvas = document.getElementById('c');
@@ -20,25 +21,49 @@ engine.setHardwareScalingLevel(1 / Math.min(window.devicePixelRatio || 1, 1.5));
 let save = loadSave();
 sound.setEnabled(save.sound);
 const showroom = new Showroom(engine);
+const booth = new PhotoBooth(engine); // takes the little car pictures for the garage tiles
 showroom.setCar(save.car);
 
 let screen = 'menu';
 let race = null;
 let result = null;
+let garageTab = 'body'; // which garage tab is open: body, color, wheels or spoiler
+let garageHint = null; // { kind, id } of a locked garage item that was just tapped
+let homeHint = null; // the same, for a locked track or prize tapped on the home or results screen
 
-const panelSide = () => (innerWidth > innerHeight ? 'left' : 'bottom');
+// Home, garage and results are drawn on a 1180 x 820 board; this is how much to shrink or grow it to fit the screen.
+const boardScale = () => Math.min(innerWidth / 1180, innerHeight / 820);
+// where the 3D car goes on each board (see frameBoard in showroom.js)
+const CAR_SPOT = {
+  menu: { right: 350, up: 150, pxPerMeter: 74, turntable: 0.5 },
+  results: { right: 350, up: 150, pxPerMeter: 74, turntable: 0.5 },
+  garage: { right: -228, up: 55, pxPerMeter: 104, turntable: 0.52 },
+};
+
+function frameShowroom() {
+  if (!CAR_SPOT[screen]) return;
+  ui.style.setProperty('--gs', boardScale());
+  showroom.frameBoard(boardScale(), CAR_SPOT[screen]);
+}
+
+// take any car pictures that are not ready yet and drop them into their tiles
+function fillPhotos() {
+  for (const img of ui.querySelectorAll('img[data-look]:not([src])')) booth.shoot(JSON.parse(img.dataset.look)).then((url) => { img.src = url; }, () => {});
+}
 
 function show(next) {
   screen = next;
   ui.className = `screen-${screen}`;
-  if (screen === 'menu') ui.innerHTML = menuHtml(save);
-  if (screen === 'garage') ui.innerHTML = garageHtml(save);
-  if (screen === 'results') ui.innerHTML = resultsHtml(result.place, result.unlocked, save);
-  showroom.frame(panelSide());
+  if (screen === 'menu') ui.innerHTML = menuHtml(save, homeHint, (look) => booth.get(look));
+  if (screen === 'garage') ui.innerHTML = garageHtml(save, garageTab, garageHint, (look) => booth.get(look));
+  if (screen === 'results') ui.innerHTML = resultsHtml(result, save, homeHint, (look) => booth.get(look));
+  fillPhotos();
+  frameShowroom();
 }
 
 function startRace() {
   endRace();
+  homeHint = null;
   if (save.tilt) setTilt(true); // has to be re-armed from a tap each time the page is opened
   screen = 'race';
   ui.className = 'screen-race';
@@ -47,14 +72,17 @@ function startRace() {
   race = new Race(engine, save, makeHud(ui), finishRace);
 }
 
-function finishRace(place) {
-  const before = save.wins;
+function finishRace(place, runaway) {
+  const before = save.wins, levelBefore = save.level;
   save.races++;
   if (place === 1) save.wins++;
+  save.streak = place === 1 ? (save.streak ?? 0) + 1 : 0;
   // rivals get tougher after a win and ease off after a bad race, so it stays a close fight
-  save.level = Math.max(0, Math.min(MAX_LEVEL, save.level + (place === 1 ? 1 : place >= 3 ? -1 : 0)));
+  // (a runaway win, with no rival close behind, moves them up two steps)
+  save.level = Math.max(0, Math.min(MAX_LEVEL, save.level + (place === 1 ? (runaway ? 2 : 1) : place >= 3 ? -1 : 0)));
   writeSave(save);
-  result = { place, unlocked: unlocksBetween(before, save.wins) };
+  result = { place, unlocked: unlocksBetween(before, save.wins), levelChange: Math.sign(save.level - levelBefore) };
+  homeHint = null;
   endRace();
   show('results');
   if (place === 1) sound.win(); else sound.finish();
@@ -68,7 +96,18 @@ function endRace() {
 
 const actions = {
   race: startRace,
-  garage: () => show('garage'),
+  garage: () => { garageHint = null; homeHint = null; show('garage'); },
+  tab: ({ tab }) => { garageTab = tab; garageHint = null; show('garage'); },
+  hintclose: () => { garageHint = null; homeHint = null; show(screen); },
+  // dice button: a random look from everything unlocked so far
+  surprise: () => {
+    const any = (kind, table) => { const ids = Object.keys(table).filter((id) => isUnlocked(kind, id, save.wins)); return ids[Math.floor(Math.random() * ids.length)]; };
+    save.car = { body: any('body', BODIES), color: any('color', COLORS), wheels: any('wheels', WHEELS), spoiler: any('spoiler', SPOILERS) };
+    writeSave(save);
+    showroom.setCar(save.car);
+    garageHint = null;
+    show('garage');
+  },
   menu: () => show('menu'),
   quit: () => { endRace(); show('menu'); },
   reset: () => race?.reset(),
@@ -77,26 +116,28 @@ const actions = {
   sound: () => { save.sound = !save.sound; sound.setEnabled(save.sound); writeSave(save); show(screen); },
   track: ({ id }) => {
     if (!isUnlocked('track', id, save.wins)) return;
-    save.track = id; writeSave(save); show(screen);
+    save.track = id; writeSave(save);
+    homeHint = null;
+    show(screen);
   },
   pick: ({ kind, id }) => {
     if (!isUnlocked(kind, id, save.wins)) return;
     save.car[kind] = id; writeSave(save);
     showroom.setCar(save.car);
+    garageHint = null;
     show(screen);
   },
 };
 
 ui.addEventListener('click', (e) => {
-  const open = ui.querySelector('.modal');
-  if (open) { open.remove(); sound.tap(); return; } // any tap closes the pop-up
   const el = e.target.closest('[data-action]');
   if (!el) return;
   sound.tap();
   if (el.classList.contains('locked')) {
     // tapped something not unlocked yet: say how many more wins it takes
     const kind = el.dataset.kind ?? 'track', id = el.dataset.id;
-    ui.insertAdjacentHTML('beforeend', lockedHtml(winsNeeded(kind, id) - save.wins, itemName(kind, id), KIND_LABEL[kind]));
+    if (screen === 'garage') garageHint = { kind, id }; else homeHint = { kind, id };
+    show(screen);
     return;
   }
   actions[el.dataset.action]?.(el.dataset);
@@ -111,7 +152,7 @@ document.addEventListener('touchmove', (e) => { if (!e.target.closest('.scroll')
 
 addEventListener('resize', () => {
   engine.resize();
-  if (!race) showroom.frame(panelSide());
+  if (!race) frameShowroom();
 });
 
 engine.runRenderLoop(() => {

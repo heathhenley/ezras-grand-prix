@@ -6,6 +6,7 @@ const DEFAULT = {
   wins: 0,
   races: 0,
   level: 0, // rival level, see difficulty() in ai.js
+  streak: 0, // wins in a row
   track: 'oval',
   autoGas: true,
   sound: true,

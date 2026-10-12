@@ -14,12 +14,11 @@ export class Showroom {
 
     this.sky = setupSky(scene, { showSky: false, range: 6 });
 
-    const floor = MeshBuilder.CreateCylinder('turntable', { diameter: 9, height: 0.3, tessellation: 48 }, scene);
+    const floor = (this.floor = MeshBuilder.CreateCylinder('turntable', { diameter: 9, height: 0.3, tessellation: 48 }, scene));
     floor.position.y = -0.15;
     floor.material = pbr(scene, 'floor', '#2a3558', 0.6);
     floor.receiveShadows = true;
 
-    // camera target is offset so the car sits beside the UI panel
     this.camera = new ArcRotateCamera('cam', -Math.PI / 2.4, 1.2, 9.5, new Vector3(0, 0.8, 0), scene);
     this.camera.fov = 0.7;
     this.angle = 0;
@@ -37,11 +36,14 @@ export class Showroom {
     this.car.root.rotation.y = this.angle;
   }
 
-  // Nudge the car away from the UI panel. The offset is added to the view
-  // translation, so +x moves the car right on screen and +y moves it up.
-  frame(panelSide) {
-    this.camera.targetScreenOffset.x = panelSide === 'left' ? 1.8 : 0;
-    this.camera.targetScreenOffset.y = panelSide === 'bottom' ? 1.4 : 0;
+  // Home, garage and results are drawn on a 1180 x 820 board, shown on screen at `scale`, with an empty card
+  // for the car. This puts the car in that card: right/up are how far the card's middle is from the
+  // board's middle (in board pixels), pxPerMeter how big the car is drawn, turntable its size (1 = full).
+  frameBoard(scale, { right, up, pxPerMeter, turntable }) {
+    this.camera.radius = innerHeight / (2 * Math.tan(this.camera.fov / 2) * pxPerMeter * scale);
+    this.camera.targetScreenOffset.x = right / pxPerMeter;
+    this.camera.targetScreenOffset.y = up / pxPerMeter;
+    this.floor.scaling.x = this.floor.scaling.z = turntable;
   }
 
   update(dt) {

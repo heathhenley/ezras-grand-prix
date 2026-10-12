@@ -18,110 +18,142 @@ html, body {
 
 #c { position: fixed; inset: 0; width: 100%; height: 100%; display: block; outline: none; }
 #ui { position: fixed; inset: 0; pointer-events: none; }
-#ui .panel { pointer-events: auto; }
 
 button {
   font: inherit; color: inherit; border: 0; cursor: pointer;
   touch-action: manipulation;
 }
 
-/* ---------- menu / garage / results panel ---------- */
-.panel {
-  position: absolute;
-  top: max(16px, env(safe-area-inset-top)); bottom: max(16px, env(safe-area-inset-bottom));
-  left: max(16px, env(safe-area-inset-left));
-  width: min(420px, 44vw);
-  background: var(--panel); border-radius: 24px; padding: 24px;
-  display: flex; flex-direction: column; gap: 12px;
-  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.35);
-}
-.panel.scroll { overflow-y: auto; touch-action: pan-y; }
-.panel.center { justify-content: center; text-align: center; }
-
-@media (orientation: portrait) {
-  .panel { top: auto; left: 16px; right: 16px; width: auto; max-height: 58vh; }
-}
-
-h1 { margin: 0; font-size: 2.2rem; line-height: 1; letter-spacing: 0.5px; }
-h1 span { color: var(--accent); font-size: 2.6rem; }
-h2 { margin: 0; font-size: 2rem; }
-.trophies { font-size: 1.3rem; font-weight: 700; }
-.label { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 2px; opacity: 0.7; margin-top: 4px; }
-.hint { font-size: 0.95rem; opacity: 0.85; }
-.credits { font-size: 0.62rem; opacity: 0.55; text-align: center; line-height: 1.3; }
-.rivals { font-size: 0.9rem; opacity: 0.85; text-align: center; }
-.rivals span { color: var(--accent); letter-spacing: 2px; }
-
-/* prize progress */
-.unlocks { margin-top: auto; display: flex; flex-direction: column; gap: 8px; text-align: left; }
-.unlocks .label { display: flex; justify-content: space-between; margin: 0; }
-.bar { height: 10px; border-radius: 5px; background: var(--chip); overflow: hidden; flex: none; }
-.bar i { display: block; height: 100%; border-radius: 5px; background: linear-gradient(90deg, var(--accent), #ff8c1a); }
-.prizes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
-.prize {
-  background: var(--chip); border-radius: 12px; padding: 8px 4px; text-align: center; opacity: 0.6;
-  display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 0; border: 2px solid transparent;
-}
-.prize.next { opacity: 1; border-color: var(--accent); background: rgba(255, 204, 0, 0.18); }
-.prize .ico { font-size: 1.3rem; line-height: 22px; }
-.prize b { font-size: 0.85rem; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.prize small { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 1px; opacity: 0.7; }
-.prize em { font-style: normal; font-size: 0.75rem; font-weight: 700; color: var(--accent); }
-
-.chips { display: flex; flex-wrap: wrap; gap: 8px; }
-.chip {
-  background: var(--chip); border-radius: 14px; padding: 10px 14px; font-size: 1rem; font-weight: 600;
-  display: inline-flex; align-items: center; gap: 8px; min-height: 48px;
-  border: 3px solid transparent; transition: transform 0.1s;
-}
-.chip:active { transform: scale(0.95); }
-.chip.sel { border-color: var(--accent); background: rgba(255, 204, 0, 0.18); }
-.chip.locked { opacity: 0.55; }
-.chip .lock { font-size: 0.75rem; font-weight: 500; opacity: 0.9; }
-.swatch { width: 22px; height: 22px; border-radius: 50%; border: 2px solid #fff; display: inline-block; }
-
-.big {
-  background: rgba(255, 255, 255, 0.16); border-radius: 18px; padding: 16px; font-size: 1.4rem; font-weight: 800;
-  min-height: 64px; transition: transform 0.1s;
-}
-.big:active, .small:active { transform: scale(0.96); }
-.big.go { background: var(--go); box-shadow: 0 6px 0 #1f8a50; font-size: 1.7rem; }
-.small { background: transparent; padding: 8px; font-size: 1rem; opacity: 0.85; }
-.row { display: flex; flex-wrap: wrap; justify-content: center; gap: 0 8px; }
-.back { align-self: flex-start; background: var(--chip); border-radius: 12px; padding: 10px 16px; font-size: 1rem; font-weight: 700; }
-
-.place { font-size: 3rem; font-weight: 900; }
-.place.gold { color: var(--accent); }
-.sub { font-size: 1.3rem; opacity: 0.9; }
-.unlock {
-  background: linear-gradient(90deg, #8e44ec, #ff5fa2); border-radius: 14px; padding: 12px; font-size: 1.15rem;
-  animation: pop 0.5s ease-out both;
-}
-
-/* the menu has five tracks and the prize bar to fit, so it is packed a little tighter */
-.screen-menu .panel { gap: 8px; padding: 20px 22px; }
-.screen-menu .chip { min-height: 40px; padding: 6px 11px; font-size: 0.9rem; }
-.screen-menu .big { min-height: 54px; padding: 11px; }
-.screen-menu h1 { font-size: 1.9rem; }
-.screen-menu h1 span { font-size: 2.2rem; }
-
-/* pop-up over the menu / garage */
-.modal {
-  position: absolute; inset: 0; pointer-events: auto; display: flex; align-items: center; justify-content: center;
-  background: rgba(8, 12, 28, 0.6); z-index: 5;
-}
-.modal-box {
-  background: #1b2547; border-radius: 26px; padding: 28px 30px; width: min(380px, 84vw); text-align: center;
-  display: flex; flex-direction: column; gap: 12px; box-shadow: 0 14px 50px rgba(0, 0, 0, 0.5); border: 3px solid var(--accent);
-  animation: pop 0.25s ease-out both;
-}
-.modal-lock { font-size: 3rem; line-height: 1; }
-.modal-title { font-size: 2rem; font-weight: 900; color: var(--accent); }
-.modal-sub { font-size: 1.15rem; opacity: 0.9; }
-.prize.locked { cursor: pointer; }
-
 @keyframes pop { from { transform: scale(0.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+/* ---------- garage: a 1180 x 820 board, scaled to fit the screen (--gs is set from main.js) ---------- */
+.garage {
+  position: absolute; left: 50%; top: 50%; width: 1180px; height: 820px; padding: 24px;
+  display: flex; flex-direction: column; gap: 16px; color: #fff; pointer-events: none;
+  transform: translate(-50%, -50%) scale(var(--gs, 1));
+}
+.garage button, .garage .g-card { pointer-events: auto; }
+.garage button { display: flex; align-items: center; justify-content: center; }
+.garage button:active { transform: scale(0.96); }
+.g-top { height: 72px; flex: none; display: flex; align-items: center; justify-content: space-between; }
+.g-round { width: 72px; height: 72px; border-radius: 50%; background: #2b3363; }
+.g-wins { height: 72px; padding: 0 28px 0 20px; border-radius: 36px; background: #2b3363; display: flex; align-items: center; gap: 12px; font-size: 44px; font-weight: 700; line-height: 1; }
+.g-main { flex: 1; display: flex; gap: 24px; min-height: 0; }
+.g-left { width: 676px; display: flex; flex-direction: column; gap: 16px; }
+/* the stage is see-through: the 3D car behind the page shows in it */
+.g-stage { position: relative; height: 520px; flex: none; border-radius: 32px; border: 4px solid #2f376a; }
+.g-dice { position: absolute; top: 16px; right: 16px; width: 80px; height: 80px; border-radius: 24px; background: #8a4fe0; }
+.g-hint { position: absolute; left: 16px; right: 16px; bottom: 16px; border-radius: 24px; background: #fff; color: #1b2140; padding: 16px 16px 16px 20px; display: flex; align-items: center; gap: 16px; animation: pop 0.25s ease-out both; }
+.g-hint-lock { width: 64px; height: 64px; flex: none; border-radius: 50%; background: #1b2140; color: #ffd23f; display: flex; align-items: center; justify-content: center; }
+.g-hint-body, .g-next-body { flex: 1; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.g-hint-text { font-size: 26px; font-weight: 600; line-height: 1.1; }
+.g-bar { height: 18px; border-radius: 9px; background: #dfe3f3; overflow: hidden; }
+.g-bar i { display: block; height: 100%; border-radius: 9px; background: #f28c28; }
+.g-close { width: 56px; height: 56px; flex: none; border-radius: 50%; background: #eef0f8; color: #1b2140; }
+.g-next { flex: 1; border-radius: 28px; background: #232a52; padding: 20px 24px; display: flex; align-items: center; gap: 20px; }
+.g-gift { width: 80px; height: 80px; flex: none; border-radius: 50%; background: #ffd23f; color: #1b2140; display: flex; align-items: center; justify-content: center; }
+.g-next-body { gap: 12px; }
+.g-next-title { font-size: 28px; font-weight: 600; line-height: 1.2; }
+.g-next-title.long { font-size: 23px; } /* long prize names get smaller type so they still fit on one line */
+.g-next .g-bar { height: 22px; border-radius: 11px; background: #11152b; }
+.g-next .g-bar i { border-radius: 11px; background: #ffd23f; }
+.g-more { flex: none; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.g-more div { display: flex; align-items: center; gap: 6px; }
+.g-more b { font-size: 40px; font-weight: 700; line-height: 1; }
+.g-more span { font-size: 18px; color: #c9cfee; }
+.g-right { width: 432px; display: flex; flex-direction: column; gap: 16px; }
+.g-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.garage .g-tab { height: 96px; border-radius: 24px; background: #2b3363; color: #fff; flex-direction: column; gap: 4px; font-size: 17px; font-weight: 600; }
+.garage .g-tab.on { background: #ffd23f; color: #1b2140; }
+.g-grid { flex: 1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-content: start; }
+.g-tile { position: relative; height: 132px; border-radius: 24px; padding: 8px; color: #fff; border: 5px solid transparent; background: #2b3363; }
+.g-tile.sel { border-color: #ffd23f; background: #3a4380; }
+.g-tile-in { display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 18px; font-weight: 600; color: #e4e8fa; }
+.g-tile.locked .g-tile-in { opacity: 0.4; }
+.g-pic { width: 108px; height: 54px; display: block; }
+.g-pic:not([src]) { visibility: hidden; } /* until its picture has been taken */
+.g-swatch { width: 68px; height: 68px; border-radius: 50%; border: 4px solid rgba(255, 255, 255, 0.9); }
+.g-need { position: absolute; top: 8px; right: 8px; height: 30px; padding: 0 10px 0 8px; border-radius: 15px; background: #11152b; display: flex; align-items: center; gap: 4px; font-size: 18px; font-weight: 700; color: #ffd23f; }
+.g-check { position: absolute; top: -10px; right: -10px; width: 36px; height: 36px; border-radius: 50%; background: #ffd23f; color: #1b2140; display: flex; align-items: center; justify-content: center; }
+.garage .g-go, .home .g-go { height: 124px; flex: none; border-radius: 32px; border-bottom: 10px solid #136a32; background: #1e9e4a; color: #fff; gap: 20px; font-size: 60px; font-weight: 700; letter-spacing: 2px; line-height: 1; }
+
+/* ---------- home: the same kind of 1180 x 820 board as the garage ---------- */
+.home {
+  position: absolute; left: 50%; top: 50%; width: 1180px; height: 820px; padding: 24px 24px 12px;
+  display: flex; flex-direction: column; gap: 16px; color: #fff; pointer-events: none;
+  transform: translate(-50%, -50%) scale(var(--gs, 1));
+}
+.home button, .home .g-card, .home .locked { pointer-events: auto; }
+.home button { display: flex; align-items: center; justify-content: center; }
+.home button:active { transform: scale(0.96); }
+.h-top { height: 88px; flex: none; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.h-title { display: flex; flex-direction: column; line-height: 0.95; }
+.h-title span { font-size: 30px; font-weight: 600; }
+.h-title b { font-size: 56px; font-weight: 700; color: #ffd23f; }
+.h-top-right { display: flex; align-items: center; gap: 12px; }
+.home .h-toggle { width: 96px; height: 76px; border-radius: 22px; flex-direction: column; gap: 2px; color: #fff; background: #2b3363; opacity: 0.7; font-size: 15px; font-weight: 600; }
+.home .h-toggle.on { background: #1e9e4a; opacity: 1; }
+.h-wins { height: 76px; border-radius: 38px; }
+.h-main { flex: 1; display: flex; gap: 24px; min-height: 0; }
+.h-left { width: 676px; display: flex; flex-direction: column; gap: 12px; }
+.h-heading { height: 36px; flex: none; display: flex; align-items: center; gap: 10px; font-size: 28px; font-weight: 600; }
+.h-tracks { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.h-track { position: relative; height: 170px; border-radius: 24px; padding: 8px; color: #fff; border: 5px solid transparent; background: #2b3363; }
+.h-track.sel { border-color: #ffd23f; background: #3a4380; }
+.h-track-in { display: flex; flex-direction: column; align-items: center; gap: 8px; font-size: 20px; font-weight: 600; color: #e4e8fa; }
+.h-track-in svg { border-radius: 14px; display: block; }
+.h-track.locked .h-track-in { opacity: 0.4; }
+.h-need { top: 12px; right: 12px; height: 32px; border-radius: 16px; }
+.h-soon { height: 170px; border-radius: 24px; border: 4px dashed #2b3363; display: flex; align-items: center; justify-content: center; color: #6f78a8; font-size: 20px; font-weight: 600; }
+.h-prizes { position: relative; flex: 1; border-radius: 28px; background: #232a52; padding: 16px 20px; display: flex; flex-direction: column; gap: 12px; }
+.h-prizes-top { display: flex; align-items: center; gap: 14px; font-size: 24px; font-weight: 600; }
+.h-prizes-top b { font-size: 22px; font-weight: 700; color: #ffd23f; }
+.h-bar { flex: 1; height: 18px; border-radius: 9px; background: #11152b; overflow: hidden; }
+.h-bar i { display: block; height: 100%; border-radius: 9px; background: #ffd23f; }
+.h-prize-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.h-prize { height: 118px; border-radius: 20px; border: 4px solid transparent; background: #2b3363; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; font-size: 18px; font-weight: 600; line-height: 1; cursor: pointer; }
+.h-prize.next { border-color: #ffd23f; background: #3a4380; }
+.h-prize.far { opacity: 0.55; }
+.h-prize-pic { height: 44px; display: flex; align-items: center; justify-content: center; }
+.h-pic { width: 88px; height: 44px; }
+.h-swatch { width: 40px; height: 40px; border-radius: 50%; border: 3px solid rgba(255, 255, 255, 0.9); }
+.h-prize-need { display: flex; align-items: center; gap: 4px; }
+.h-prize-need b { font-size: 17px; font-weight: 700; color: #ffd23f; }
+.h-hint { position: absolute; inset: 0; border-radius: 28px; background: #fff; color: #1b2140; padding: 16px 16px 16px 20px; display: flex; align-items: center; gap: 16px; animation: pop 0.25s ease-out both; }
+.h-hint-text { font-size: 28px; font-weight: 600; line-height: 1.1; }
+.h-right { width: 432px; display: flex; flex-direction: column; gap: 16px; }
+/* the car card is see-through: the 3D car behind the page shows in it */
+.h-car { position: relative; height: 348px; flex: none; border-radius: 32px; border: 4px solid #2f376a; }
+.home .h-garage { position: absolute; left: 12px; right: 12px; bottom: 12px; height: 72px; border-radius: 22px; background: #2b3363; color: #fff; gap: 14px; font-size: 30px; font-weight: 700; }
+.h-rivals { height: 116px; flex: none; border-radius: 24px; background: #232a52; padding: 12px 18px; display: flex; flex-direction: column; justify-content: center; gap: 8px; }
+.h-rivals-top { height: 30px; display: flex; align-items: center; justify-content: space-between; font-size: 22px; font-weight: 600; }
+.h-streak { height: 30px; padding: 0 12px 0 8px; border-radius: 15px; background: #f28c28; color: #1b2140; display: flex; align-items: center; gap: 4px; font-size: 18px; }
+.h-rivals-row { display: flex; align-items: center; gap: 10px; }
+.h-heat { flex: 1; display: grid; grid-template-columns: repeat(10, minmax(0, 1fr)); gap: 4px; align-items: end; }
+.h-heat i { display: block; border-radius: 6px; }
+.home .h-go { flex: 1; height: auto; font-size: 72px; }
+.h-credits { height: 18px; flex: none; font-size: 12px; color: #9aa3c7; text-align: center; line-height: 18px; }
+
+/* ---------- results: the home board with a result card in place of the track tiles ---------- */
+.results .h-left { gap: 16px; }
+.results .h-prizes { flex: none; }
+.r-result { flex: 1; min-height: 0; border-radius: 32px; background: #232a52; border: 5px solid transparent; display: flex; align-items: center; gap: 32px; padding: 24px 40px; }
+.r-result.won { border-color: #ffd23f; background: #3a4380; }
+.r-medal { width: 170px; height: 170px; flex: none; border-radius: 50%; background: #1b2140; display: flex; align-items: center; justify-content: center; }
+.r-medal b { font-size: 110px; font-weight: 700; line-height: 1; color: #c9cfee; }
+.r-words { display: flex; flex-direction: column; gap: 10px; }
+.r-place { font-size: 76px; font-weight: 700; line-height: 1; }
+.r-result.won .r-place { color: #ffd23f; }
+.r-sub { font-size: 30px; font-weight: 600; color: #e4e8fa; line-height: 1.15; }
+.r-new { flex: none; border-radius: 28px; background: linear-gradient(90deg, #8a4fe0, #f05fa6); padding: 14px 20px; display: flex; align-items: center; gap: 20px; animation: pop 0.5s ease-out both; }
+.r-new-title { display: flex; align-items: center; gap: 12px; font-size: 28px; font-weight: 700; flex: none; }
+.r-new-row { flex: 1; display: flex; gap: 12px; justify-content: flex-end; }
+.r-new-tile { min-width: 132px; height: 104px; padding: 0 12px; border-radius: 20px; background: rgba(17, 21, 43, 0.45); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; font-size: 18px; font-weight: 600; line-height: 1; }
+.r-new-tile small { font-size: 13px; text-transform: uppercase; letter-spacing: 1px; opacity: 0.8; }
+.r-buttons { flex: 1; display: flex; gap: 16px; min-height: 0; }
+.home .r-home { width: 124px; border-radius: 32px; background: #2b3363; color: #fff; }
+.h-streak.easier { background: #2fae5a; padding: 0 12px; }
+.h-heat i.new { animation: pop 0.6s ease-out 0.3s both; }
 
 /* ---------- race HUD ---------- */
 .screen-race { pointer-events: none; }

@@ -75,7 +75,7 @@ export class Race {
     this.t = -3; // countdown
     this.lastCount = '';
     this.hitCooldown = 0;
-    sound.engineStart();
+    sound.engineStart(this.cars.length - 1);
     this.finishedOrder = [];
     this.doneTimer = -1;
   }
@@ -122,6 +122,14 @@ export class Race {
         }
       }
     }
+    // rival engines: louder as they get close, and from the side they are on
+    const me = this.player, rx = Math.cos(this.camH), rz = -Math.sin(this.camH); // rx, rz: the camera's right
+    let k = 0;
+    for (const c of this.cars) {
+      if (c === me) continue;
+      const dx = c.x - me.x, dz = c.z - me.z, far = Math.hypot(dx, dz);
+      sound.rivalSet(k++, Math.abs(c.speed) / c.stats.max, far, far > 0.1 ? Math.max(-1, Math.min(1, ((dx * rx + dz * rz) / far) * 0.8)) : 0);
+    }
     if (this.player.landed) sound.hit(0.45); // thump down after a jump
     this.hitCooldown -= dt;
     if (this.player.bonk > 2 && this.hitCooldown <= 0) { // drove into a tree
@@ -147,7 +155,8 @@ export class Race {
 
     if (this.doneTimer > 0) {
       this.doneTimer -= dt;
-      if (this.doneTimer <= 0) this.onFinish(this.player.place);
+      // runaway: the player won and nobody else has even finished yet
+      if (this.doneTimer <= 0) this.onFinish(this.player.place, this.player.place === 1 && this.finishedOrder.length === 1);
     }
   }
 

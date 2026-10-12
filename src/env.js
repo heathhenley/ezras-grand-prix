@@ -51,7 +51,7 @@ export function tiled(scene, file, uScale, vScale) {
 // Lights a scene from the sky. Returns { sun, shadows, follow(x, z) }.
 // look (optional, per track - see `sky` in data.js) changes the mood: sun: colour of the sunlight,
 // tint: [colour, strength 0..1] washed over the whole sky, bright: overall brightness (1 = normal).
-export function setupSky(scene, { showSky = true, range = SHADOW_RANGE, look = {} } = {}) {
+export function setupSky(scene, { showSky = true, range = SHADOW_RANGE, look = {}, shadows: wantShadows = true } = {}) {
   scene.environmentTexture = CubeTexture.CreateFromPrefilteredData(asset('sky.env'), scene);
   scene.environmentIntensity = 1.5;
 
@@ -70,12 +70,15 @@ export function setupSky(scene, { showSky = true, range = SHADOW_RANGE, look = {
   sun.shadowMinZ = 1;
   sun.shadowMaxZ = 260;
 
-  const shadows = new ShadowGenerator(2048, sun);
-  shadows.usePercentageCloserFiltering = true;
-  shadows.filteringQuality = ShadowGenerator.QUALITY_MEDIUM;
-  shadows.bias = 0.002;
-  shadows.normalBias = 0.02;
-  shadows.darkness = 0.15;
+  let shadows = null; // (a scene that only takes still pictures of cars can do without them)
+  if (wantShadows) {
+    shadows = new ShadowGenerator(2048, sun);
+    shadows.usePercentageCloserFiltering = true;
+    shadows.filteringQuality = ShadowGenerator.QUALITY_MEDIUM;
+    shadows.bias = 0.002;
+    shadows.normalBias = 0.02;
+    shadows.darkness = 0.15;
+  }
 
   // The shadow map only covers the area around this point, so keep it on the action.
   const follow = (x, z) => sun.position.set(x + SUN_DIR.x * 120, SUN_DIR.y * 120, z + SUN_DIR.z * 120);
