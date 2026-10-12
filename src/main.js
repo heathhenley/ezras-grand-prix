@@ -6,7 +6,7 @@ import { isUnlocked, unlocksBetween } from './data.js';
 import { MAX_LEVEL } from './ai.js';
 import { Showroom } from './showroom.js';
 import { Race } from './race.js';
-import { bindTouchButtons, isTouchDevice } from './input.js';
+import { bindTouchButtons, isTouchDevice, setTilt } from './input.js';
 import { menuHtml, garageHtml, hudHtml, makeHud, resultsHtml } from './ui.js';
 import * as sound from './sound.js';
 
@@ -39,6 +39,7 @@ function show(next) {
 
 function startRace() {
   endRace();
+  if (save.tilt) setTilt(true); // has to be re-armed from a tap each time the page is opened
   screen = 'race';
   ui.className = 'screen-race';
   ui.innerHTML = hudHtml(isTouchDevice());
@@ -72,6 +73,7 @@ const actions = {
   quit: () => { endRace(); show('menu'); },
   reset: () => race?.reset(),
   autogas: () => { save.autoGas = !save.autoGas; writeSave(save); show(screen); },
+  tilt: async () => { save.tilt = await setTilt(!save.tilt); writeSave(save); if (screen === 'menu') show(screen); },
   sound: () => { save.sound = !save.sound; sound.setEnabled(save.sound); writeSave(save); show(screen); },
   track: ({ id }) => {
     if (!isUnlocked('track', id, save.wins)) return;

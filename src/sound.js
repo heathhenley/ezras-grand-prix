@@ -53,6 +53,36 @@ export const win = () => tune([523, 659, 784, 1047, 784, 1047], 0.13, 0.3, 'squa
 export const finish = () => tune([392, 494, 587], 0.16, 0.3, 'triangle', 0.2);
 export const prize = () => tune([784, 988, 1175, 1568], 0.09, 0.35, 'triangle', 0.18);
 
+// Car-on-car bump: a burst of muffled noise plus a low thud. strength: 0 (tap) .. 1 (crash).
+let noise = null;
+export function hit(strength) {
+  const a = audio();
+  if (!a) return;
+  if (!noise) {
+    noise = a.createBuffer(1, a.sampleRate * 0.25, a.sampleRate);
+    const d = noise.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  }
+  const t = a.currentTime, vol = 0.15 + 0.45 * strength;
+  const src = a.createBufferSource(), filter = a.createBiquadFilter(), gain = a.createGain();
+  src.buffer = noise;
+  filter.type = 'lowpass';
+  filter.frequency.value = 500 + 1800 * strength; // harder hits sound sharper
+  gain.gain.setValueAtTime(vol, t);
+  gain.gain.exponentialRampToValueAtTime(0.001, t + 0.12 + 0.1 * strength);
+  src.connect(filter).connect(gain).connect(master);
+  src.start(t);
+
+  const thud = a.createOscillator(), thudGain = a.createGain();
+  thud.frequency.setValueAtTime(110, t);
+  thud.frequency.exponentialRampToValueAtTime(45, t + 0.15);
+  thudGain.gain.setValueAtTime(vol, t);
+  thudGain.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+  thud.connect(thudGain).connect(master);
+  thud.start(t);
+  thud.stop(t + 0.2);
+}
+
 // Engine: two buzzy oscillators through a filter; pitch and brightness follow the speed.
 export function engineStart() {
   const a = audio();

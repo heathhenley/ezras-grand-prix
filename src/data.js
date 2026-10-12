@@ -36,6 +36,7 @@ export const BODIES = {
 };
 
 // Control points (x, z) for closed Catmull-Rom loops. Width is road width in meters.
+// scenery lists which models from src/scenery.json get scattered around (repeat a name to see more of it).
 function ellipse(rx, rz, n) {
   const pts = [];
   for (let i = 0; i < n; i++) {
@@ -51,11 +52,20 @@ export const TRACKS = {
     width: 16,
     ground: '#7cc464',
     points: ellipse(130, 70, 14),
+    scenery: {
+      trees: ['tree_oak', 'tree_detailed', 'tree_default', 'tree_fat', 'tree_tall', 'tree_plateau'],
+      small: ['plant_bushLarge', 'plant_bushDetailed', 'stone_largeB'],
+    },
   },
   twisty: {
     name: 'Twisty Woods',
     width: 14,
     ground: '#5fae55',
+    scenery: {
+      treeCount: 420,
+      trees: ['tree_pineRoundC', 'tree_pineTallA_detailed', 'tree_pineDefaultA', 'tree_pineRoundC', 'tree_oak', 'tree_detailed'],
+      small: ['plant_bushLarge', 'plant_bushDetailed', 'rock_largeA', 'stone_tallD'],
+    },
     points: [
       [0, -80], [90, -90], [140, -50], [130, 10], [80, 20], [60, 60], [90, 100],
       [40, 130], [-40, 120], [-70, 70], [-130, 60], [-140, -10], [-100, -60],
@@ -65,6 +75,11 @@ export const TRACKS = {
     name: 'Lake Loop',
     width: 14,
     ground: '#8fcf6a',
+    lake: true, // fills the middle of the loop with water
+    scenery: {
+      trees: ['tree_tall', 'tree_default', 'tree_pineDefaultA', 'tree_plateau', 'tree_fat'],
+      small: ['rock_largeA', 'rock_tallC', 'stone_largeB', 'stone_tallD', 'plant_bushLarge'],
+    },
     points: [
       [-150, 0], [-120, -70], [-40, -100], [40, -70], [110, -100], [160, -40],
       [140, 40], [70, 60], [20, 110], [-60, 110], [-120, 70],

@@ -4,7 +4,13 @@ import { VertexData } from '@babylonjs/core/Meshes/mesh.vertexData';
 import { Color3 } from '@babylonjs/core/Maths/math.color';
 import { Vector3, Matrix, Quaternion } from '@babylonjs/core/Maths/math.vector';
 import '@babylonjs/core/Meshes/thinInstanceMesh';
-import { pbr as mat, tiled } from './env.js';
+import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
+import { ImageProcessingConfiguration } from '@babylonjs/core/Materials/imageProcessingConfiguration';
+import { pbr as mat, tiled, HORIZON } from './env.js';
+import MODELS from './scenery.json'; // Kenney Nature Kit shapes, made by tools/build-scenery.mjs
+
+// Colours for the parts of the scenery models (the kit's own colours are teal and orange).
+const SCENERY_COLORS = { leaf: '#4f9e3d', pine: '#2c6b43', bark: '#6e4b2e', bush: '#5aa644', rock: '#8b8e92', stone: '#a6a9ad' };
 
 const GRASS_TILE = 5; // meters covered by one repeat of the grass texture
 const ROAD_TILE = 4;
@@ -16,6 +22,71 @@ function rng(seed) {
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
+}
+
+// A ring of hills far away, fading into the haze at the bottom. Flat colours, no lighting.
+function hills(scene, rand, radius, low, high, hex) {
+  const top = Color3.FromHexString(hex), base = Color3.FromHexString(HORIZON);
+  const waves = [3, 5, 8, 13, 21].map((n) => [n, rand() * 6.28, 1 / Math.sqrt(n)]);
+  const N = 160, positions = [], colors = [], indices = [];
+  for (let i = 0; i <= N; i++) {
+    const a = (i / N) * Math.PI * 2;
+    let h = 0;
+    for (const [n, phase, amp] of waves) h += Math.sin(a * n + phase) * amp;
+    const y = low + (high - low) * Math.max(0, Math.min(1, 0.5 + h * 0.3));
+    const x = Math.sin(a) * radius, z = Math.cos(a) * radius;
+    positions.push(x, -2, z, x, y, z);
+    colors.push(base.r, base.g, base.b, 1, top.r, top.g, top.b, 1);
+    if (i < N) indices.push(i * 2, i * 2 + 1, i * 2 + 2, i * 2 + 1, i * 2 + 3, i * 2 + 2);
+  }
+  const mesh = new Mesh('hills', scene);
+  const vd = new VertexData();
+  Object.assign(vd, { positions, colors, indices });
+  vd.applyToMesh(mesh);
+  const m = new StandardMaterial('hills', scene);
+  m.emissiveColor = Color3.White();
+  m.disableLighting = true;
+  m.fogEnabled = false;
+  m.backFaceCulling = false;
+  m.imageProcessingConfiguration = new ImageProcessingConfiguration(); // plain colours, no tone mapping
+  mesh.material = m;
+  mesh.isPickable = false;
+}
+
+// Outline of a lake that fills the inside of the loop: in every direction from the middle it
+// stops a safe distance short of the road. Returns the middle, a radius per direction, and a test.
+function lakeOutline(track, hw) {
+  const { samples } = track, N = 72;
+  const cx = samples.reduce((t, s) => t + s.x, 0) / samples.length, cz = samples.reduce((t, s) => t + s.z, 0) / samples.length;
+  const slot = (x, z) => Math.floor(((Math.atan2(x - cx, z - cz) / (Math.PI * 2) + 1) % 1) * N) % N;
+  const reach = new Array(N).fill(Infinity); // distance to the road in each direction
+  for (const s of samples) reach[slot(s.x, s.z)] = Math.min(reach[slot(s.x, s.z)], Math.hypot(s.x - cx, s.z - cz));
+  let radius = reach.map((_, i) => {
+    let near = Infinity;
+    for (let k = -4; k <= 4; k++) near = Math.min(near, reach[(i + k + N) % N]);
+    return Math.max(0, near - hw - 24);
+  });
+  for (let pass = 0; pass < 3; pass++) radius = radius.map((r, i) => (radius[(i + N - 1) % N] + r * 2 + radius[(i + 1) % N]) / 4);
+  return { cx, cz, radius, N, covers: (x, z, extra = 0) => Math.hypot(x - cx, z - cz) < radius[slot(x, z)] + extra };
+}
+
+// A flat patch in the shape of the lake outline, grown outwards by `grow` meters.
+function lakePatch(scene, name, lake, grow, y, material) {
+  const positions = [lake.cx, y, lake.cz], normals = [0, 1, 0], indices = [];
+  for (let i = 0; i < lake.N; i++) {
+    const a = ((i + 0.5) / lake.N) * Math.PI * 2, r = lake.radius[i] + grow;
+    positions.push(lake.cx + Math.sin(a) * r, y, lake.cz + Math.cos(a) * r);
+    normals.push(0, 1, 0);
+    indices.push(0, i + 1, ((i + 1) % lake.N) + 1);
+  }
+  const mesh = new Mesh(name, scene);
+  const vd = new VertexData();
+  Object.assign(vd, { positions, normals, indices });
+  vd.applyToMesh(mesh);
+  material.backFaceCulling = false;
+  mesh.material = material;
+  mesh.receiveShadows = true;
+  mesh.isPickable = false;
 }
 
 function place(mesh, list) {
@@ -116,27 +187,49 @@ export function buildWorld(scene, track, def, shadows) {
   banner.position.set(s0.x, 6, s0.z);
   banner.rotation.y = s0.heading;
 
-  // Trees scattered away from the road
-  const rand = rng(1234);
-  const trunk = MeshBuilder.CreateCylinder('trunk', { diameter: 0.8, height: 3, tessellation: 6 }, scene);
-  trunk.material = mat(scene, 'bark', '#6b4423');
-  const leaves = MeshBuilder.CreateCylinder('leaves', { diameterTop: 0, diameterBottom: 5, height: 7, tessellation: 7 }, scene);
-  leaves.material = mat(scene, 'leaf', '#2e7d32');
-  const trunks = [], tops = [];
-  let tries = 0;
-  while (trunks.length < 260 && tries++ < 5000) {
-    const x = (rand() - 0.5) * 560, z = (rand() - 0.5) * 460;
-    let near = Infinity;
-    for (let i = 0; i < count; i += 3) near = Math.min(near, Math.hypot(samples[i].x - x, samples[i].z - z));
-    if (near < hw + 14) continue;
-    const s = 0.7 + rand() * 0.8;
-    trunks.push([x, 1.5 * s, z, 0, s, s, s]);
-    tops.push([x, (3 + 3.5) * s, z, rand() * 6, s, s, s]);
+  // Lake in the middle of the loop: a sandy shore with still water on top that mirrors the sky
+  const lake = def.lake ? lakeOutline(track, hw) : null;
+  if (lake) {
+    lakePatch(scene, 'shore', lake, 4, 0.03, mat(scene, 'sand', '#cdb98a', 0.95));
+    lakePatch(scene, 'water', lake, 0, 0.06, mat(scene, 'water', '#17607a', 0.05));
   }
-  place(trunk, trunks);
-  place(leaves, tops);
 
-  for (const m of [post, banner, trunk, leaves]) shadows.addShadowCaster(m, false);
+  // Trees, bushes and rocks scattered away from the road
+  const rand = rng(1234);
+  const spots = {}; // model name -> where its copies go
+  const scatter = (names, howMany, gap, sizeFor) => {
+    for (let n = 0, tries = 0; n < howMany && tries < howMany * 20; tries++) {
+      const x = (rand() - 0.5) * 640, z = (rand() - 0.5) * 540;
+      let near = Infinity;
+      for (let i = 0; i < count; i += 3) near = Math.min(near, Math.hypot(samples[i].x - x, samples[i].z - z));
+      if (near < hw + gap || lake?.covers(x, z, 7)) continue;
+      const name = names[Math.floor(rand() * names.length)];
+      const s = sizeFor() / MODELS[name].height;
+      (spots[name] ??= []).push([x, 0, z, rand() * 6.28, s, s * (0.9 + rand() * 0.25), s]);
+      n++;
+    }
+  };
+  scatter(def.scenery.trees, def.scenery.treeCount ?? 300, 14, () => 7 + rand() * 7); // 7-14 m tall
+  scatter(def.scenery.small, 170, 9, () => 0.8 + rand() * 1.6); // bushes and rocks
+
+  const sceneryMats = {};
+  for (const [name, list] of Object.entries(spots)) {
+    for (const [kind, g] of Object.entries(MODELS[name].groups)) {
+      const m = new Mesh(`${name}-${kind}`, scene);
+      const vd = new VertexData();
+      vd.positions = g.pos;
+      vd.normals = g.nor;
+      vd.indices = Array.from({ length: g.pos.length / 3 }, (_, i) => i);
+      vd.applyToMesh(m);
+      m.material = sceneryMats[kind] ??= mat(scene, kind, SCENERY_COLORS[kind], 0.9);
+      place(m, list);
+      shadows.addShadowCaster(m, false);
+    }
+  }
+  for (const m of [post, banner]) shadows.addShadowCaster(m, false);
+
+  hills(scene, rand, 640, 45, 120, '#8195ab');
+  hills(scene, rand, 480, 12, 55, '#7d9a84');
 
   for (const m of scene.materials) m.freeze();
 }

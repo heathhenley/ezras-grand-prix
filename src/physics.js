@@ -84,19 +84,46 @@ export function resetCar(c, track) {
   c.speed = 0; c.steer = 0; c.lateral = 0;
 }
 
-// Simple circle push-apart so cars bump instead of overlapping
-export function collide(cars, r = 1.7) {
+// Each car is two circles, one over each axle, which fits a car shape much better than one big circle.
+const HIT_R = 1.05; // circle radius (half a car's width)
+const HIT_OFF = 0.95; // how far each circle sits in front of / behind the car's middle
+const BOUNCE = 0.2; // 0 = cars stick together after a bump, 1 = they bounce apart like pool balls
+
+// Pushes overlapping cars apart and trades speed between them like a real bump: the car behind
+// slows down and the car in front gets shoved forward. Rubbing side by side costs no speed.
+// Returns the bumps that happened: [{ a, b, impact }] where impact is the closing speed in m/s.
+export function collide(cars) {
+  const hits = [];
   for (let i = 0; i < cars.length; i++) {
     for (let j = i + 1; j < cars.length; j++) {
       const a = cars[i], b = cars[j];
-      const dx = b.x - a.x, dz = b.z - a.z;
-      const d = Math.hypot(dx, dz);
-      if (d > 0 && d < r * 2) {
-        const push = (r * 2 - d) / 2, nx = dx / d, nz = dz / d;
-        a.x -= nx * push; a.z -= nz * push;
-        b.x += nx * push; b.z += nz * push;
-        a.speed *= 0.98; b.speed *= 0.98;
+      if (Math.hypot(b.x - a.x, b.z - a.z) > 2 * (HIT_R + HIT_OFF)) continue;
+      const fa = [Math.sin(a.h), Math.cos(a.h)], fb = [Math.sin(b.h), Math.cos(b.h)];
+
+      // deepest overlap between any of a's circles and any of b's
+      let overlap = 0, nx = 0, nz = 0;
+      for (const sa of [-HIT_OFF, HIT_OFF]) {
+        for (const sb of [-HIT_OFF, HIT_OFF]) {
+          const dx = b.x + fb[0] * sb - (a.x + fa[0] * sa), dz = b.z + fb[1] * sb - (a.z + fa[1] * sa);
+          const d = Math.hypot(dx, dz);
+          if (d > 0 && HIT_R * 2 - d > overlap) { overlap = HIT_R * 2 - d; nx = dx / d; nz = dz / d; }
+        }
+      }
+      if (!overlap) continue;
+
+      a.x -= nx * overlap / 2; a.z -= nz * overlap / 2;
+      b.x += nx * overlap / 2; b.z += nz * overlap / 2;
+
+      // how fast they are closing along the line between them (n points from a to b)
+      const an = fa[0] * nx + fa[1] * nz, bn = fb[0] * nx + fb[1] * nz;
+      const closing = a.speed * an - b.speed * bn;
+      if (closing > 0) {
+        const shove = closing * (1 + BOUNCE) / 2;
+        a.speed -= shove * an;
+        b.speed += shove * bn;
+        hits.push({ a, b, impact: closing });
       }
     }
   }
+  return hits;
 }

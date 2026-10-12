@@ -9,6 +9,7 @@ const DEFAULT = {
   track: 'oval',
   autoGas: true,
   sound: true,
+  tilt: false, // steer by tipping the tablet
   car: { body: 'racer', color: 'red', wheels: 'black', spoiler: 'none' },
 };
 

@@ -1,4 +1,4 @@
-# Backyard Grand Prix
+# Ezra's Grand Prix
 
 A small racing game for the browser: Babylon.js + Vite, no physics engine, no accounts, no purchases.
 Race 3 AI cars for 3 laps; every win unlocks something (paint, wheels, spoilers, cars, tracks).
@@ -16,6 +16,11 @@ Vite prints a `Network:` URL like `http://192.168.1.50:5173`. Open that on the t
 Windows will probably ask to allow Node through the firewall the first time — allow it on private networks.
 
 Desktop controls: arrows/WASD, Space to brake. On a touch screen you get big on-screen buttons.
+
+**Tilt steering:** the menu shows a *Tilt steering* switch on touch devices, but browsers only allow it on
+https pages. To try it over Wi-Fi run `npm run dev:https`, open the `https://` Network URL on the tablet and
+accept the certificate warning. Once the game is hosted on a real https site it just works.
+If it ever steers the wrong way or is too twitchy, the settings are at the top of the tilt section in `src/input.js`.
 
 ## Put it on his tablet
 
@@ -36,6 +41,7 @@ after the first load (the service worker only registers over HTTPS).
 | `src/env.js` | The look: sky lighting, sun and shadows, shiny materials. Lists where the files in `public/assets` came from (all CC0). |
 | `src/carmesh.js` | Builds the cars from `src/cars.json` and gives them paint, glass, wheels and spoilers. |
 | `tools/build-cars.mjs` | Makes `src/cars.json` from the Kenney Car Kit models in `tools/car-kit` (CC0). Notes at the top explain how to add a car. |
+| `tools/build-scenery.mjs` | Makes `src/scenery.json` (trees, bushes, rocks) from the Kenney Nature Kit models in `tools/nature-kit` (CC0). Each track picks its mix in `scenery` in `data.js`. |
 | `src/sound.js` | Engine, countdown beeps and jingles, all generated in code (no sound files). |
 | `src/race.js` | One race: grid, countdown, camera, HUD, finish. |
 | `src/showroom.js` | Turntable scene behind the menu and garage. |

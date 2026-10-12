@@ -3,7 +3,7 @@ import { FreeCamera } from '@babylonjs/core/Cameras/freeCamera';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { Color3, Color4 } from '@babylonjs/core/Maths/math.color';
 
-import { TRACKS, COLORS, LAPS } from './data.js';
+import { TRACKS, COLORS, BODIES, WHEELS, SPOILERS, LAPS } from './data.js';
 import { buildTrack, wrapAngle } from './trackmath.js';
 import { buildWorld } from './world.js';
 import { buildCar } from './carmesh.js';
@@ -42,17 +42,21 @@ export class Race {
     const skills = [...rivals.skills];
     this.cars = slots.map(([idx, lat], k) => {
       const isPlayer = k === 2;
-      const cfg = isPlayer ? save.car : { ...save.car, color: others[k % others.length], spoiler: 'none', wheels: 'black' };
+      // rivals turn up in any car, even ones the player has not unlocked yet
+      const cfg = isPlayer ? save.car : { body: pick(BODIES), color: others[k % others.length], wheels: pick(WHEELS), spoiler: pick(SPOILERS) };
       const mesh = buildCar(scene, cfg);
       castShadows(this.sky.shadows, mesh.root);
-      const c = makeCar(mesh.stats, this.track, idx, lat);
+      // ...but everyone gets the player's engine, so the race is decided by driving, not by the car
+      const c = makeCar(BODIES[save.car.body].stats, this.track, idx, lat);
       c.mesh = mesh;
+      c.color = COLORS[cfg.color].hex;
       c.isPlayer = isPlayer;
       c.skill = isPlayer ? 1 : skills.pop();
       if (!isPlayer) { c.ai = rivals; c.maxScale = rivals.maxScale; }
       return c;
     });
     this.player = this.cars[2];
+    hud.map(this.track, this.cars);
 
     const cam = (this.camera = new FreeCamera('cam', new Vector3(0, 5, 0), scene));
     cam.minZ = 0.3;
@@ -64,6 +68,7 @@ export class Race {
 
     this.t = -3; // countdown
     this.lastCount = '';
+    this.hitCooldown = 0;
     sound.engineStart();
     this.finishedOrder = [];
     this.doneTimer = -1;
@@ -95,7 +100,7 @@ export class Race {
           ctrl = c.finished ? { steer: 0, throttle: 0, brake: 1 } : this.readControls(this.autoGas);
           sound.engineSet(Math.abs(c.speed) / c.stats.max, !!ctrl.throttle);
         }
-        else ctrl = aiControls(c, this.track, this.hw, dt, rubberBand(progress(c, n), pp, c.ai));
+        else ctrl = aiControls(c, this.track, this.hw, dt, rubberBand(progress(c, n), pp, c.ai), this.cars);
       }
       stepCar(c, ctrl, dt, this.track, this.hw);
       if (!c.finished && c.lap >= LAPS) {
@@ -108,7 +113,13 @@ export class Race {
         }
       }
     }
-    collide(this.cars);
+    this.hitCooldown -= dt;
+    for (const hit of collide(this.cars)) {
+      if ((hit.a.isPlayer || hit.b.isPlayer) && hit.impact > 2.5 && this.hitCooldown <= 0) {
+        sound.hit(Math.min(1, hit.impact / 14));
+        this.hitCooldown = 0.3;
+      }
+    }
 
     for (const c of this.cars) {
       c.mesh.root.position.set(c.x, 0, c.z);
@@ -145,6 +156,7 @@ export class Race {
       else if (count.length === 1) sound.countdown();
     }
     this.hud.set(ordinal(place), `Lap ${lap}/${LAPS}`, count, p.offroad);
+    this.hud.dots();
   }
 
   dispose() {
@@ -152,6 +164,8 @@ export class Race {
     this.scene.dispose();
   }
 }
+
+const pick = (table) => { const ids = Object.keys(table); return ids[Math.floor(Math.random() * ids.length)]; };
 
 export function ordinal(n) {
   return n + (['th', 'st', 'nd', 'rd'][n] || 'th');

@@ -1,6 +1,7 @@
 // HTML for the menu, garage, HUD, and results screens.
 import { BODIES, COLORS, WHEELS, SPOILERS, TRACKS, UNLOCKS, KIND_LABEL, itemName, isUnlocked, winsNeeded } from './data.js';
 import { MAX_LEVEL } from './ai.js';
+import { tiltSupported } from './input.js';
 import { ordinal } from './race.js';
 
 const lockBadge = (n) => `<span class="lock">🔒 ${n} win${n === 1 ? '' : 's'}</span>`;
@@ -34,7 +35,7 @@ export function menuHtml(save) {
       ${t.name}${open ? '' : lockBadge(winsNeeded('track', id))}</button>`;
   }).join('');
   return `<div class="panel scroll">
-    <h1>Backyard<br><span>Grand Prix</span></h1>
+    <h1>Ezra's<br><span>Grand Prix</span></h1>
     <div class="trophies">🏆 ${save.wins} win${save.wins === 1 ? '' : 's'}</div>
     <div class="label">Track</div>
     <div class="chips">${tracks}</div>
@@ -43,6 +44,7 @@ export function menuHtml(save) {
     <div class="row">
       <button class="small" data-action="autogas">Auto gas: <b>${save.autoGas ? 'ON' : 'OFF'}</b></button>
       <button class="small" data-action="sound">Sound: <b>${save.sound ? 'ON' : 'OFF'}</b></button>
+      ${tiltSupported() ? `<button class="small" data-action="tilt">Tilt steering: <b>${save.tilt ? 'ON' : 'OFF'}</b></button>` : ''}
     </div>
     ${rivalsHtml(save.level)}
     ${unlockBar(save.wins)}
@@ -78,6 +80,7 @@ export function hudHtml(showTouch) {
         <button class="hud-btn" data-action="reset" title="Back on the road">↺</button>
         <button class="hud-btn" data-action="quit" title="Quit race">✕</button>
       </div>
+      <svg id="hmap" class="minimap" viewBox="0 0 100 100"></svg>
       <div id="hcount" class="count"></div>
       <div id="hoff" class="offroad">Get back on the road!</div>
     </div>
@@ -90,8 +93,30 @@ export function hudHtml(showTouch) {
 export function makeHud(root) {
   const pos = root.querySelector('#hpos'), lap = root.querySelector('#hlap');
   const count = root.querySelector('#hcount'), off = root.querySelector('#hoff');
+  const mapEl = root.querySelector('#hmap');
   let last = [];
+  let toMap = null, dots = [];
   return {
+    // mini map: draws the track outline once, with a dot per car (the player's is bigger and on top)
+    map(track, cars) {
+      const xs = track.samples.map((s) => s.x), zs = track.samples.map((s) => s.z);
+      const midX = (Math.min(...xs) + Math.max(...xs)) / 2, midZ = (Math.min(...zs) + Math.max(...zs)) / 2;
+      const k = 84 / Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...zs) - Math.min(...zs));
+      toMap = (x, z) => [(50 + (x - midX) * k).toFixed(1), (50 - (z - midZ) * k).toFixed(1)];
+      const d = track.samples.filter((_, i) => i % 3 === 0).map((s, i) => (i ? 'L' : 'M') + toMap(s.x, s.z).join(' ')).join('') + 'Z';
+      const [sx, sy] = toMap(xs[0], zs[0]);
+      const order = [...cars].sort((a, b) => a.isPlayer - b.isPlayer);
+      mapEl.innerHTML = `<path class="edge" d="${d}"/><path class="road" d="${d}"/><circle class="start" cx="${sx}" cy="${sy}" r="2.4"/>`
+        + order.map((c) => `<circle class="car ${c.isPlayer ? 'me' : ''}" r="${c.isPlayer ? 4.6 : 3.4}" fill="${c.color}"/>`).join('');
+      dots = [...mapEl.querySelectorAll('.car')].map((el, i) => [el, order[i]]);
+    },
+    dots() {
+      for (const [el, c] of dots) {
+        const [x, y] = toMap(c.x, c.z);
+        el.setAttribute('cx', x);
+        el.setAttribute('cy', y);
+      }
+    },
     set(p, l, c, o) {
       if (p !== last[0]) pos.textContent = p;
       if (l !== last[1]) lap.textContent = l;
