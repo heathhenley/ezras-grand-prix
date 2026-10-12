@@ -1,0 +1,10 @@
+{
+  "name": "Backyard Grand Prix",
+  "short_name": "Grand Prix",
+  "start_url": "./",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#1b2a4a",
+  "theme_color": "#1b2a4a",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}
