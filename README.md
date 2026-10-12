@@ -64,8 +64,8 @@ Two models are CC-BY 3.0, which means they must be credited (the menu shows this
 
 ## Easy tweaks
 
-- **Too hard / too easy:** rivals have a level from 0 to 10 (the dots on the menu). It goes up one after
-  a win and down one after finishing 3rd or 4th. What each level means is in `difficulty()` in `ai.js`.
+- **Too hard / too easy:** rivals have ten levels (the Rival speed bars on the home screen). It goes up one after
+  a win (two after a runaway win) and down one after finishing 3rd or 4th. What each level means is in `difficulty()` in `ai.js`.
 - **Shorter races:** `LAPS` in `data.js`.
 - **New track:** add an entry to `TRACKS` with a list of `[x, z]` points (meters, going around the loop),
   then add it to `UNLOCKS`. Keep corners gentle and parts of the loop well apart from each other.
