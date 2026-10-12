@@ -2,12 +2,12 @@ import { Engine } from '@babylonjs/core/Engines/engine';
 import './style.css';
 
 import { loadSave, writeSave } from './save.js';
-import { isUnlocked, unlocksBetween } from './data.js';
+import { isUnlocked, unlocksBetween, winsNeeded, itemName, KIND_LABEL } from './data.js';
 import { MAX_LEVEL } from './ai.js';
 import { Showroom } from './showroom.js';
 import { Race } from './race.js';
 import { bindTouchButtons, isTouchDevice, setTilt } from './input.js';
-import { menuHtml, garageHtml, hudHtml, makeHud, resultsHtml } from './ui.js';
+import { menuHtml, garageHtml, hudHtml, makeHud, resultsHtml, lockedHtml } from './ui.js';
 import * as sound from './sound.js';
 
 const canvas = document.getElementById('c');
@@ -88,11 +88,15 @@ const actions = {
 };
 
 ui.addEventListener('click', (e) => {
+  const open = ui.querySelector('.modal');
+  if (open) { open.remove(); sound.tap(); return; } // any tap closes the pop-up
   const el = e.target.closest('[data-action]');
   if (!el) return;
   sound.tap();
   if (el.classList.contains('locked')) {
-    el.classList.remove('shake'); void el.offsetWidth; el.classList.add('shake');
+    // tapped something not unlocked yet: say how many more wins it takes
+    const kind = el.dataset.kind ?? 'track', id = el.dataset.id;
+    ui.insertAdjacentHTML('beforeend', lockedHtml(winsNeeded(kind, id) - save.wins, itemName(kind, id), KIND_LABEL[kind]));
     return;
   }
   actions[el.dataset.action]?.(el.dataset);

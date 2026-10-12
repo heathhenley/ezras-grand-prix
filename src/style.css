@@ -99,9 +99,29 @@ h2 { margin: 0; font-size: 2rem; }
   animation: pop 0.5s ease-out both;
 }
 
+/* the menu has five tracks and the prize bar to fit, so it is packed a little tighter */
+.screen-menu .panel { gap: 8px; padding: 20px 22px; }
+.screen-menu .chip { min-height: 40px; padding: 6px 11px; font-size: 0.9rem; }
+.screen-menu .big { min-height: 54px; padding: 11px; }
+.screen-menu h1 { font-size: 1.9rem; }
+.screen-menu h1 span { font-size: 2.2rem; }
+
+/* pop-up over the menu / garage */
+.modal {
+  position: absolute; inset: 0; pointer-events: auto; display: flex; align-items: center; justify-content: center;
+  background: rgba(8, 12, 28, 0.6); z-index: 5;
+}
+.modal-box {
+  background: #1b2547; border-radius: 26px; padding: 28px 30px; width: min(380px, 84vw); text-align: center;
+  display: flex; flex-direction: column; gap: 12px; box-shadow: 0 14px 50px rgba(0, 0, 0, 0.5); border: 3px solid var(--accent);
+  animation: pop 0.25s ease-out both;
+}
+.modal-lock { font-size: 3rem; line-height: 1; }
+.modal-title { font-size: 2rem; font-weight: 900; color: var(--accent); }
+.modal-sub { font-size: 1.15rem; opacity: 0.9; }
+.prize.locked { cursor: pointer; }
+
 @keyframes pop { from { transform: scale(0.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
-.shake { animation: shake 0.35s; }
-@keyframes shake { 25% { transform: translateX(-6px); } 50% { transform: translateX(6px); } 75% { transform: translateX(-4px); } }
 
 /* ---------- race HUD ---------- */
 .screen-race { pointer-events: none; }

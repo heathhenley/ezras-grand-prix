@@ -19,7 +19,7 @@ function unlockBar(wins) {
   const tiles = coming.map(([need, kind, id], k) => {
     const left = need - wins;
     const icon = kind === 'color' ? `<i class="swatch" style="background:${COLORS[id].hex}"></i>` : `<span class="ico">${KIND_ICON[kind]}</span>`;
-    return `<div class="prize ${k === 0 ? 'next' : ''}">${icon}
+    return `<div class="prize locked ${k === 0 ? 'next' : ''}" data-action="peek" data-kind="${kind}" data-id="${id}">${icon}
       <b>${itemName(kind, id)}</b><small>${KIND_LABEL[kind]}</small>
       <em>${left} win${left === 1 ? '' : 's'}</em></div>`;
   }).join('');
@@ -27,6 +27,16 @@ function unlockBar(wins) {
 }
 
 const rivalsHtml = (level) => `<div class="rivals">Rivals <span>${'●'.repeat(level)}${'○'.repeat(MAX_LEVEL - level)}</span></div>`;
+
+// Pop-up shown when something still locked is tapped.
+export function lockedHtml(winsLeft, name, kindLabel) {
+  return `<div class="modal"><div class="modal-box">
+    <div class="modal-lock">🔒</div>
+    <div class="modal-title">Get ${winsLeft} more win${winsLeft === 1 ? '' : 's'}!</div>
+    <div class="modal-sub">to unlock <b>${name}</b> <span>${kindLabel.toLowerCase()}</span></div>
+    <button class="big go">OK</button>
+  </div></div>`;
+}
 
 export function menuHtml(save) {
   // listed in the order they unlock
