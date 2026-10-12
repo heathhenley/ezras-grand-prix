@@ -34,15 +34,17 @@ after the first load (the service worker only registers over HTTPS).
 | `src/trackmath.js` | Turns a track's control points into a smooth, evenly sampled loop. |
 | `src/world.js` | Builds the 3D track: road, curbs, start line, trees. |
 | `src/env.js` | The look: sky lighting, sun and shadows, shiny materials. Lists where the files in `public/assets` came from (all CC0). |
-| `src/carmesh.js` | Builds the blocky cars from boxes and cylinders (no model files needed). |
+| `src/carmesh.js` | Builds the cars from `src/cars.json` and gives them paint, glass, wheels and spoilers. |
+| `tools/build-cars.mjs` | Makes `src/cars.json` from the Kenney Car Kit models in `tools/car-kit` (CC0). Notes at the top explain how to add a car. |
+| `src/sound.js` | Engine, countdown beeps and jingles, all generated in code (no sound files). |
 | `src/race.js` | One race: grid, countdown, camera, HUD, finish. |
 | `src/showroom.js` | Turntable scene behind the menu and garage. |
 | `src/ui.js`, `src/style.css` | Menus, garage, HUD, results. |
 
 ## Easy tweaks
 
-- **Too hard / too easy:** opponent skill is `const skills = [0.92, 0.88, 0.84]` in `race.js`.
-  The rubber-band strength is in `rubberBand()` in `ai.js`.
+- **Too hard / too easy:** rivals have a level from 0 to 10 (the dots on the menu). It goes up one after
+  a win and down one after finishing 3rd or 4th. What each level means is in `difficulty()` in `ai.js`.
 - **Shorter races:** `LAPS` in `data.js`.
 - **New track:** add an entry to `TRACKS` with a list of `[x, z]` points (meters, going around the loop),
   then add it to `UNLOCKS`. Keep corners gentle and parts of the loop well apart from each other.

@@ -25,26 +25,14 @@ export const SPOILERS = {
   wing: { name: 'Big Wing' },
 };
 
-// dims are in meters; stats: max speed (m/s), accel (m/s^2), turn (rad/s), offroad (speed multiplier on grass)
+// The car shapes come from src/cars.json (built by tools/build-cars.mjs); scale sizes them up to meters.
+// stats: max speed (m/s), accel (m/s^2), turn (rad/s), offroad (speed multiplier on grass)
 export const BODIES = {
-  racer: {
-    name: 'Racer',
-    style: 'racer',
-    dims: { w: 1.8, l: 4.0, h: 0.55, clear: 0.35, cabinL: 1.7, cabinH: 0.5, cabinZ: -0.2, wheelD: 0.7, wheelW: 0.35, wheelX: 0.95, wheelZf: 1.3, wheelZr: -1.3 },
-    stats: { max: 40, accel: 24, brake: 40, turn: 2.3, offroad: 0.5 },
-  },
-  muscle: {
-    name: 'Muscle',
-    style: 'muscle',
-    dims: { w: 2.0, l: 4.4, h: 0.7, clear: 0.35, cabinL: 1.8, cabinH: 0.55, cabinZ: -0.4, wheelD: 0.8, wheelW: 0.42, wheelX: 1.05, wheelZf: 1.45, wheelZr: -1.45 },
-    stats: { max: 45, accel: 21, brake: 38, turn: 2.0, offroad: 0.5 },
-  },
-  buggy: {
-    name: 'Buggy',
-    style: 'buggy',
-    dims: { w: 1.7, l: 3.2, h: 0.45, clear: 0.6, cabinL: 1.3, cabinH: 0.8, cabinZ: -0.3, wheelD: 1.0, wheelW: 0.45, wheelX: 1.0, wheelZf: 1.1, wheelZr: -1.1 },
-    stats: { max: 38, accel: 28, brake: 42, turn: 2.6, offroad: 0.85 },
-  },
+  racer: { name: 'Racer', scale: 1.55, stats: { max: 40, accel: 24, brake: 40, turn: 2.3, offroad: 0.5 } },
+  muscle: { name: 'Rally', scale: 1.5, stats: { max: 45, accel: 21, brake: 38, turn: 2.0, offroad: 0.5 } },
+  buggy: { name: 'Truck', scale: 1.45, stats: { max: 38, accel: 28, brake: 42, turn: 2.6, offroad: 0.85 } },
+  formula: { name: 'Formula', scale: 1.6, stats: { max: 48, accel: 27, brake: 46, turn: 2.5, offroad: 0.4 } },
+  future: { name: 'Super Sport', scale: 1.6, stats: { max: 52, accel: 30, brake: 48, turn: 2.6, offroad: 0.45 } },
 };
 
 // Control points (x, z) for closed Catmull-Rom loops. Width is road width in meters.
@@ -100,7 +88,9 @@ export const UNLOCKS = [
   [10, 'body', 'buggy'],
   [12, 'track', 'lake'],
   [13, 'color', 'pink'],
+  [14, 'body', 'formula'],
   [15, 'color', 'yellow'],
+  [18, 'body', 'future'],
   [20, 'color', 'black'],
 ];
 

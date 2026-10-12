@@ -8,9 +8,10 @@ import { buildTrack, wrapAngle } from './trackmath.js';
 import { buildWorld } from './world.js';
 import { buildCar } from './carmesh.js';
 import { makeCar, stepCar, collide, progress, resetCar } from './physics.js';
-import { aiControls, rubberBand } from './ai.js';
+import { aiControls, rubberBand, difficulty } from './ai.js';
 import { readControls } from './input.js';
 import { setupSky, castShadows, HORIZON } from './env.js';
+import * as sound from './sound.js';
 
 export class Race {
   constructor(engine, save, hud, onFinish) {
@@ -37,7 +38,8 @@ export class Race {
     const n = this.track.count;
     const slots = [[n - 4, -3.5], [n - 4, 3.5], [n - 9, -3.5], [n - 9, 3.5]];
     const others = Object.keys(COLORS).filter((c) => c !== save.car.color).sort(() => Math.random() - 0.5);
-    const skills = [0.92, 0.88, 0.84];
+    const rivals = difficulty(save.level);
+    const skills = [...rivals.skills];
     this.cars = slots.map(([idx, lat], k) => {
       const isPlayer = k === 2;
       const cfg = isPlayer ? save.car : { ...save.car, color: others[k % others.length], spoiler: 'none', wheels: 'black' };
@@ -47,6 +49,7 @@ export class Race {
       c.mesh = mesh;
       c.isPlayer = isPlayer;
       c.skill = isPlayer ? 1 : skills.pop();
+      if (!isPlayer) { c.ai = rivals; c.maxScale = rivals.maxScale; }
       return c;
     });
     this.player = this.cars[2];
@@ -60,6 +63,8 @@ export class Race {
     this.sky.follow(this.player.x, this.player.z);
 
     this.t = -3; // countdown
+    this.lastCount = '';
+    sound.engineStart();
     this.finishedOrder = [];
     this.doneTimer = -1;
   }
@@ -86,8 +91,11 @@ export class Race {
     for (const c of this.cars) {
       let ctrl = { steer: 0, throttle: 0, brake: 0 };
       if (racing) {
-        if (c.isPlayer) ctrl = c.finished ? { steer: 0, throttle: 0, brake: 1 } : this.readControls(this.autoGas);
-        else ctrl = aiControls(c, this.track, this.hw, dt, rubberBand(progress(c, n), pp));
+        if (c.isPlayer) {
+          ctrl = c.finished ? { steer: 0, throttle: 0, brake: 1 } : this.readControls(this.autoGas);
+          sound.engineSet(Math.abs(c.speed) / c.stats.max, !!ctrl.throttle);
+        }
+        else ctrl = aiControls(c, this.track, this.hw, dt, rubberBand(progress(c, n), pp, c.ai));
       }
       stepCar(c, ctrl, dt, this.track, this.hw);
       if (!c.finished && c.lap >= LAPS) {
@@ -131,10 +139,16 @@ export class Race {
     if (this.t < 0) count = String(Math.ceil(-this.t));
     else if (this.t < 0.8) count = 'GO!';
     if (p.finished) count = place === 1 ? 'YOU WIN!' : 'FINISH!';
+    if (count !== this.lastCount) {
+      this.lastCount = count;
+      if (count === 'GO!') sound.go();
+      else if (count.length === 1) sound.countdown();
+    }
     this.hud.set(ordinal(place), `Lap ${lap}/${LAPS}`, count, p.offroad);
   }
 
   dispose() {
+    sound.engineStop();
     this.scene.dispose();
   }
 }

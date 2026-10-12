@@ -1,15 +1,31 @@
 // HTML for the menu, garage, HUD, and results screens.
-import { BODIES, COLORS, WHEELS, SPOILERS, TRACKS, KIND_LABEL, itemName, isUnlocked, winsNeeded, nextUnlock } from './data.js';
+import { BODIES, COLORS, WHEELS, SPOILERS, TRACKS, UNLOCKS, KIND_LABEL, itemName, isUnlocked, winsNeeded } from './data.js';
+import { MAX_LEVEL } from './ai.js';
 import { ordinal } from './race.js';
 
 const lockBadge = (n) => `<span class="lock">🔒 ${n} win${n === 1 ? '' : 's'}</span>`;
 
-function nextHint(wins) {
-  const nx = nextUnlock(wins);
-  if (!nx) return `<div class="hint">You unlocked everything! 🌟</div>`;
-  const left = nx[0] - wins;
-  return `<div class="hint">${left} more win${left === 1 ? '' : 's'} → <b>${itemName(nx[1], nx[2])}</b> ${KIND_LABEL[nx[1]].toLowerCase()}</div>`;
+const KIND_ICON = { body: '🏎️', wheels: '🛞', spoiler: '💨', track: '🏁' };
+
+// Progress bar + the next few prizes, shown on the menu and results screens.
+function unlockBar(wins) {
+  const prizes = UNLOCKS.filter((u) => u[0] > 0);
+  const got = prizes.filter((u) => u[0] <= wins).length;
+  const coming = prizes.filter((u) => u[0] > wins).slice(0, 4);
+  const head = `<div class="label">Prizes <b>${got}/${prizes.length}</b></div>
+    <div class="bar"><i style="width:${Math.round((got / prizes.length) * 100)}%"></i></div>`;
+  if (!coming.length) return `<div class="unlocks">${head}<div class="hint">You unlocked everything! 🌟</div></div>`;
+  const tiles = coming.map(([need, kind, id], k) => {
+    const left = need - wins;
+    const icon = kind === 'color' ? `<i class="swatch" style="background:${COLORS[id].hex}"></i>` : `<span class="ico">${KIND_ICON[kind]}</span>`;
+    return `<div class="prize ${k === 0 ? 'next' : ''}">${icon}
+      <b>${itemName(kind, id)}</b><small>${KIND_LABEL[kind]}</small>
+      <em>${left} win${left === 1 ? '' : 's'}</em></div>`;
+  }).join('');
+  return `<div class="unlocks">${head}<div class="prizes">${tiles}</div></div>`;
 }
+
+const rivalsHtml = (level) => `<div class="rivals">Rivals <span>${'●'.repeat(level)}${'○'.repeat(MAX_LEVEL - level)}</span></div>`;
 
 export function menuHtml(save) {
   const tracks = Object.entries(TRACKS).map(([id, t]) => {
@@ -17,15 +33,19 @@ export function menuHtml(save) {
     return `<button class="chip ${save.track === id ? 'sel' : ''} ${open ? '' : 'locked'}" data-action="track" data-id="${id}">
       ${t.name}${open ? '' : lockBadge(winsNeeded('track', id))}</button>`;
   }).join('');
-  return `<div class="panel">
+  return `<div class="panel scroll">
     <h1>Backyard<br><span>Grand Prix</span></h1>
     <div class="trophies">🏆 ${save.wins} win${save.wins === 1 ? '' : 's'}</div>
     <div class="label">Track</div>
     <div class="chips">${tracks}</div>
     <button class="big go" data-action="race">RACE!</button>
     <button class="big" data-action="garage">🔧 Garage</button>
-    <button class="small" data-action="autogas">Auto gas: <b>${save.autoGas ? 'ON' : 'OFF'}</b></button>
-    ${nextHint(save.wins)}
+    <div class="row">
+      <button class="small" data-action="autogas">Auto gas: <b>${save.autoGas ? 'ON' : 'OFF'}</b></button>
+      <button class="small" data-action="sound">Sound: <b>${save.sound ? 'ON' : 'OFF'}</b></button>
+    </div>
+    ${rivalsHtml(save.level)}
+    ${unlockBar(save.wins)}
   </div>`;
 }
 
@@ -87,13 +107,13 @@ export function resultsHtml(place, unlocked, save) {
   const sub = place === 1 ? 'You won!' : place === 2 ? 'So close! Try again!' : 'Keep practicing — you got this!';
   const news = unlocked.map(([, kind, id]) =>
     `<div class="unlock">✨ NEW ${KIND_LABEL[kind].toUpperCase()}: <b>${itemName(kind, id)}</b></div>`).join('');
-  return `<div class="panel center">
+  return `<div class="panel center scroll">
     <div class="place ${place === 1 ? 'gold' : ''}">${title}</div>
     <div class="sub">${sub}</div>
     ${news}
     <button class="big go" data-action="race">Race again</button>
     <button class="big" data-action="garage">🔧 Garage</button>
     <button class="small" data-action="menu">Menu</button>
-    ${nextHint(save.wins)}
+    ${unlockBar(save.wins)}
   </div>`;
 }

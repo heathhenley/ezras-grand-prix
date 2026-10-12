@@ -3,10 +3,12 @@ import './style.css';
 
 import { loadSave, writeSave } from './save.js';
 import { isUnlocked, unlocksBetween } from './data.js';
+import { MAX_LEVEL } from './ai.js';
 import { Showroom } from './showroom.js';
 import { Race } from './race.js';
 import { bindTouchButtons, isTouchDevice } from './input.js';
 import { menuHtml, garageHtml, hudHtml, makeHud, resultsHtml } from './ui.js';
+import * as sound from './sound.js';
 
 const canvas = document.getElementById('c');
 const ui = document.getElementById('ui');
@@ -16,6 +18,7 @@ const engine = new Engine(canvas, true, { stencil: false, powerPreference: 'high
 engine.setHardwareScalingLevel(1 / Math.min(window.devicePixelRatio || 1, 1.5));
 
 let save = loadSave();
+sound.setEnabled(save.sound);
 const showroom = new Showroom(engine);
 showroom.setCar(save.car);
 
@@ -47,10 +50,14 @@ function finishRace(place) {
   const before = save.wins;
   save.races++;
   if (place === 1) save.wins++;
+  // rivals get tougher after a win and ease off after a bad race, so it stays a close fight
+  save.level = Math.max(0, Math.min(MAX_LEVEL, save.level + (place === 1 ? 1 : place >= 3 ? -1 : 0)));
   writeSave(save);
   result = { place, unlocked: unlocksBetween(before, save.wins) };
   endRace();
   show('results');
+  if (place === 1) sound.win(); else sound.finish();
+  if (result.unlocked.length) setTimeout(sound.prize, 1000);
 }
 
 function endRace() {
@@ -65,6 +72,7 @@ const actions = {
   quit: () => { endRace(); show('menu'); },
   reset: () => race?.reset(),
   autogas: () => { save.autoGas = !save.autoGas; writeSave(save); show(screen); },
+  sound: () => { save.sound = !save.sound; sound.setEnabled(save.sound); writeSave(save); show(screen); },
   track: ({ id }) => {
     if (!isUnlocked('track', id, save.wins)) return;
     save.track = id; writeSave(save); show(screen);
@@ -80,6 +88,7 @@ const actions = {
 ui.addEventListener('click', (e) => {
   const el = e.target.closest('[data-action]');
   if (!el) return;
+  sound.tap();
   if (el.classList.contains('locked')) {
     el.classList.remove('shake'); void el.offsetWidth; el.classList.add('shake');
     return;
@@ -88,6 +97,9 @@ ui.addEventListener('click', (e) => {
 });
 
 // Stop iPad Safari from pinch-zooming / bouncing the page, but let the garage list scroll.
+// Browsers keep sound off until the first tap or key press.
+for (const ev of ['pointerdown', 'keydown']) addEventListener(ev, sound.unlock, { once: true });
+
 document.addEventListener('gesturestart', (e) => e.preventDefault());
 document.addEventListener('touchmove', (e) => { if (!e.target.closest('.scroll')) e.preventDefault(); }, { passive: false });
 

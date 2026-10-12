@@ -5,8 +5,10 @@ const KEY = 'backyard-gp-save-v1';
 const DEFAULT = {
   wins: 0,
   races: 0,
+  level: 0, // rival level, see difficulty() in ai.js
   track: 'oval',
   autoGas: true,
+  sound: true,
   car: { body: 'racer', color: 'red', wheels: 'black', spoiler: 'none' },
 };
 
