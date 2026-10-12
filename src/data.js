@@ -1,6 +1,6 @@
 // All the tweakable game content lives here: cars, paint, wheels, tracks, and the unlock ladder.
 
-export const LAPS = 3;
+export const LAPS = 2;
 
 export const COLORS = {
   red: { name: 'Red', hex: '#e63946' },

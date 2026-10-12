@@ -1,7 +1,7 @@
 # Ezra's Grand Prix
 
 A small racing game for the browser: Babylon.js + Vite, no physics engine, no accounts, no purchases.
-Race 3 AI cars for 3 laps; every win unlocks something (paint, wheels, spoilers, cars, tracks).
+Race 3 AI cars for 2 laps; every win unlocks something (paint, wheels, spoilers, cars, tracks).
 Progress is saved in the browser's localStorage on the device.
 
 ## Run it
