@@ -33,6 +33,7 @@ after the first load (the service worker only registers over HTTPS).
 | `src/ai.js` | Opponents: follow the road, slow for corners, rubber-band to keep races close. |
 | `src/trackmath.js` | Turns a track's control points into a smooth, evenly sampled loop. |
 | `src/world.js` | Builds the 3D track: road, curbs, start line, trees. |
+| `src/env.js` | The look: sky lighting, sun and shadows, shiny materials. Lists where the files in `public/assets` came from (all CC0). |
 | `src/carmesh.js` | Builds the blocky cars from boxes and cylinders (no model files needed). |
 | `src/race.js` | One race: grid, countdown, camera, HUD, finish. |
 | `src/showroom.js` | Turntable scene behind the menu and garage. |

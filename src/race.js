@@ -1,7 +1,5 @@
 import { Scene } from '@babylonjs/core/scene';
 import { FreeCamera } from '@babylonjs/core/Cameras/freeCamera';
-import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight';
-import { DirectionalLight } from '@babylonjs/core/Lights/directionalLight';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { Color3, Color4 } from '@babylonjs/core/Maths/math.color';
 
@@ -12,8 +10,7 @@ import { buildCar } from './carmesh.js';
 import { makeCar, stepCar, collide, progress, resetCar } from './physics.js';
 import { aiControls, rubberBand } from './ai.js';
 import { readControls } from './input.js';
-
-const SKY = '#9fd3ff';
+import { setupSky, castShadows, HORIZON } from './env.js';
 
 export class Race {
   constructor(engine, save, hud, onFinish) {
@@ -26,19 +23,15 @@ export class Race {
     this.track = buildTrack(def.points);
 
     const scene = (this.scene = new Scene(engine));
-    scene.clearColor = Color4.FromHexString(SKY + 'ff');
+    scene.clearColor = Color4.FromHexString(HORIZON + 'ff');
     scene.fogMode = Scene.FOGMODE_EXP2;
     scene.fogDensity = 0.0035;
-    scene.fogColor = Color3.FromHexString(SKY);
+    scene.fogColor = Color3.FromHexString(HORIZON);
     scene.skipPointerMovePicking = true;
 
-    const hemi = new HemisphericLight('hemi', new Vector3(0, 1, 0), scene);
-    hemi.intensity = 0.75;
-    hemi.groundColor = new Color3(0.35, 0.4, 0.35);
-    const sun = new DirectionalLight('sun', new Vector3(-0.4, -1, 0.3), scene);
-    sun.intensity = 0.6;
+    this.sky = setupSky(scene);
 
-    buildWorld(scene, this.track, def);
+    buildWorld(scene, this.track, def, this.sky.shadows);
 
     // Grid: 2x2 behind the start line. Player starts 3rd so there's someone to pass.
     const n = this.track.count;
@@ -49,6 +42,7 @@ export class Race {
       const isPlayer = k === 2;
       const cfg = isPlayer ? save.car : { ...save.car, color: others[k % others.length], spoiler: 'none', wheels: 'black' };
       const mesh = buildCar(scene, cfg);
+      castShadows(this.sky.shadows, mesh.root);
       const c = makeCar(mesh.stats, this.track, idx, lat);
       c.mesh = mesh;
       c.isPlayer = isPlayer;
@@ -63,6 +57,7 @@ export class Race {
     cam.fov = 0.95;
     this.camH = this.player.h;
     this.placeCamera(1);
+    this.sky.follow(this.player.x, this.player.z);
 
     this.t = -3; // countdown
     this.finishedOrder = [];
@@ -113,6 +108,7 @@ export class Race {
       c.mesh.animate(c.speed, c.steer, dt);
     }
     this.placeCamera(1 - Math.exp(-dt * 6));
+    this.sky.follow(this.player.x, this.player.z);
     this.updateHud();
 
     if (this.doneTimer > 0) {

@@ -3,12 +3,22 @@ import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { Color3 } from '@babylonjs/core/Maths/math.color';
 import { BODIES, COLORS, WHEELS } from './data.js';
+import { pbr } from './env.js';
 
-function mat(scene, hex, spec = 0.2, emissive = false) {
-  const m = new StandardMaterial('carMat', scene);
-  m.diffuseColor = Color3.FromHexString(hex);
-  m.specularColor = new Color3(spec, spec, spec);
-  if (emissive) m.emissiveColor = Color3.FromHexString(hex);
+const mat = (scene, hex, roughness, metallic = 0) => pbr(scene, 'carMat', hex, roughness, metallic);
+
+// Glossy paint: coloured base under a clear lacquer layer that reflects the sky.
+function paintMat(scene, hex) {
+  const m = mat(scene, hex, 0.5, 0.15);
+  m.clearCoat.isEnabled = true;
+  m.clearCoat.intensity = 0.7;
+  m.clearCoat.roughness = 0.06;
+  return m;
+}
+
+function lampMat(scene, hex, glow) {
+  const m = mat(scene, hex, 0.2);
+  m.emissiveColor = Color3.FromHexString(hex).toLinearSpace().scale(glow);
   return m;
 }
 
@@ -17,9 +27,9 @@ export function buildCar(scene, cfg) {
   const body = BODIES[cfg.body];
   const d = body.dims;
   const root = new TransformNode('car', scene);
-  const paint = mat(scene, COLORS[cfg.color].hex, 0.6);
-  const dark = mat(scene, '#22252b', 0.1);
-  const glass = mat(scene, '#1c2a3a', 0.9);
+  const paint = paintMat(scene, COLORS[cfg.color].hex);
+  const dark = mat(scene, '#22252b', 0.6);
+  const glass = mat(scene, '#6b7887', 0.04, 1); // tinted mirror, so the windows show the sky
 
   const box = (w, h, l, x, y, z, material) => {
     const m = MeshBuilder.CreateBox('part', { width: w, height: h, depth: l }, scene);
@@ -50,12 +60,12 @@ export function buildCar(scene, cfg) {
     box(d.w * 0.82, d.cabinH, d.cabinL, 0, top + d.cabinH / 2, d.cabinZ, glass);
     box(d.w * 0.84, 0.08, d.cabinL * 0.8, 0, top + d.cabinH + 0.04, d.cabinZ, paint); // roof
     if (body.style === 'muscle') box(0.5, 0.18, 0.9, 0, top + 0.09, d.l * 0.25, dark); // hood scoop
-    box(0.3, 0.02, d.l * 0.98, 0, top + 0.005, 0, mat(scene, '#ffffff', 0.3)); // racing stripe
+    box(0.3, 0.02, d.l * 0.98, 0, top + 0.005, 0, paintMat(scene, '#f2f2f2')); // racing stripe
   }
 
   // lights
-  const head = mat(scene, '#fff3b0', 0, true);
-  const tail = mat(scene, '#ff2a2a', 0, true);
+  const head = lampMat(scene, '#fff3b0', 1.5);
+  const tail = lampMat(scene, '#ff2a2a', 1.2);
   for (const s of [-1, 1]) {
     box(0.35, 0.15, 0.06, s * d.w * 0.33, top - 0.15, d.l / 2 + 0.01, head);
     box(0.35, 0.12, 0.06, s * d.w * 0.33, top - 0.15, -d.l / 2 - 0.01, tail);
@@ -70,8 +80,8 @@ export function buildCar(scene, cfg) {
   }
 
   // wheels: pivot handles steer (y) + spin (x); child cylinders are turned on their side
-  const tire = mat(scene, '#161616', 0.05);
-  const rim = mat(scene, WHEELS[cfg.wheels].rim, 0.9);
+  const tire = mat(scene, '#161616', 0.85);
+  const rim = mat(scene, WHEELS[cfg.wheels].rim, 0.3, 1);
   const wheels = [];
   for (const [x, z, front] of [[d.wheelX, d.wheelZf, true], [-d.wheelX, d.wheelZf, true], [d.wheelX, d.wheelZr, false], [-d.wheelX, d.wheelZr, false]]) {
     const pivot = new TransformNode('wheel', scene);
@@ -88,16 +98,18 @@ export function buildCar(scene, cfg) {
     wheels.push({ pivot, front });
   }
 
-  // soft blob shadow
-  const shadow = MeshBuilder.CreateDisc('shadow', { radius: 0.5, tessellation: 20 }, scene);
-  shadow.rotation.x = Math.PI / 2;
-  shadow.scaling.set(d.w * 1.4, d.l * 1.15, 1);
-  shadow.position.y = 0.045;
-  const sm = mat(scene, '#000000', 0);
-  sm.alpha = 0.35;
-  sm.backFaceCulling = false;
-  shadow.material = sm;
-  shadow.parent = root;
+  // soft dark patch right under the car; the real sun shadow falls off to one side
+  const contact = MeshBuilder.CreateDisc('contact', { radius: 0.5, tessellation: 20 }, scene);
+  contact.rotation.x = Math.PI / 2;
+  contact.scaling.set(d.w * 1.05, d.l * 1.0, 1);
+  contact.position.y = 0.045;
+  const cm = new StandardMaterial('contact', scene);
+  cm.diffuseColor = cm.specularColor = Color3.Black();
+  cm.disableLighting = true;
+  cm.alpha = 0.4;
+  cm.backFaceCulling = false;
+  contact.material = cm;
+  contact.parent = root;
 
   let spin = 0;
   return {

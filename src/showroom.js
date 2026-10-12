@@ -1,31 +1,23 @@
 // The turntable scene behind the menu and garage screens.
 import { Scene } from '@babylonjs/core/scene';
 import { ArcRotateCamera } from '@babylonjs/core/Cameras/arcRotateCamera';
-import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight';
-import { DirectionalLight } from '@babylonjs/core/Lights/directionalLight';
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder';
-import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector';
-import { Color3, Color4 } from '@babylonjs/core/Maths/math.color';
+import { Color4 } from '@babylonjs/core/Maths/math.color';
 import { buildCar } from './carmesh.js';
+import { setupSky, castShadows, pbr } from './env.js';
 
 export class Showroom {
   constructor(engine) {
     const scene = (this.scene = new Scene(engine));
     scene.clearColor = new Color4(0.11, 0.16, 0.29, 1);
 
-    const hemi = new HemisphericLight('hemi', new Vector3(0, 1, 0), scene);
-    hemi.intensity = 0.8;
-    hemi.groundColor = new Color3(0.2, 0.2, 0.3);
-    const key = new DirectionalLight('key', new Vector3(-0.5, -1, 0.6), scene);
-    key.intensity = 0.7;
+    this.sky = setupSky(scene, { showSky: false, range: 6 });
 
     const floor = MeshBuilder.CreateCylinder('turntable', { diameter: 9, height: 0.3, tessellation: 48 }, scene);
     floor.position.y = -0.15;
-    const fm = new StandardMaterial('floor', scene);
-    fm.diffuseColor = Color3.FromHexString('#2a3558');
-    fm.specularColor = new Color3(0.3, 0.3, 0.3);
-    floor.material = fm;
+    floor.material = pbr(scene, 'floor', '#2a3558', 0.6);
+    floor.receiveShadows = true;
 
     // camera target is offset so the car sits beside the UI panel
     this.camera = new ArcRotateCamera('cam', -Math.PI / 2.4, 1.2, 9.5, new Vector3(0, 0.8, 0), scene);
@@ -41,6 +33,7 @@ export class Showroom {
     this.cfgKey = key;
     this.car?.dispose();
     this.car = buildCar(this.scene, cfg);
+    castShadows(this.sky.shadows, this.car.root);
     this.car.root.rotation.y = this.angle;
   }
 
