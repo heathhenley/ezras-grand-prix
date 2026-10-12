@@ -4,6 +4,9 @@
 //                      (sky.env is the lighting baked from it, sky.jpg is the picture you see)
 //   asphalt_*.jpg      "Asphalt Track", polyhaven.com
 //   grass_diff.jpg     "Grass 005", ambientcg.com
+//   sand_diff.jpg      "Sand 01", polyhaven.com
+//   lava.jpg           "Lava 004", ambientcg.com
+//   lava_crust.jpg     "Lava 002", ambientcg.com
 import { CubeTexture } from '@babylonjs/core/Materials/Textures/cubeTexture';
 import { Texture } from '@babylonjs/core/Materials/Textures/texture';
 import { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial';
@@ -46,19 +49,21 @@ export function tiled(scene, file, uScale, vScale) {
 }
 
 // Lights a scene from the sky. Returns { sun, shadows, follow(x, z) }.
-export function setupSky(scene, { showSky = true, range = SHADOW_RANGE } = {}) {
+// look (optional, per track - see `sky` in data.js) changes the mood: sun: colour of the sunlight,
+// tint: [colour, strength 0..1] washed over the whole sky, bright: overall brightness (1 = normal).
+export function setupSky(scene, { showSky = true, range = SHADOW_RANGE, look = {} } = {}) {
   scene.environmentTexture = CubeTexture.CreateFromPrefilteredData(asset('sky.env'), scene);
   scene.environmentIntensity = 1.5;
 
   const ip = scene.imageProcessingConfiguration;
   ip.toneMappingEnabled = true;
   ip.toneMappingType = ImageProcessingConfiguration.TONEMAPPING_KHR_PBR_NEUTRAL; // keeps bright paint colourful
-  ip.exposure = 1.1;
+  ip.exposure = 1.1 * (look.bright ?? 1);
   ip.contrast = 1.15;
 
   const sun = new DirectionalLight('sun', SUN_DIR.scale(-1), scene);
   sun.intensity = 2.4;
-  sun.diffuse = new Color3(1, 0.96, 0.88);
+  sun.diffuse = look.sun ? Color3.FromHexString(look.sun) : new Color3(1, 0.96, 0.88);
   sun.autoUpdateExtends = false;
   sun.orthoLeft = sun.orthoBottom = -range;
   sun.orthoRight = sun.orthoTop = range;
@@ -89,6 +94,19 @@ export function setupSky(scene, { showSky = true, range = SHADOW_RANGE } = {}) {
     dome.material = sm;
     dome.infiniteDistance = true;
     dome.isPickable = false;
+    if (look.tint) {
+      // a see-through coloured shell just inside the sky picture
+      const veil = MeshBuilder.CreateSphere('skyTint', { diameter: 2500, segments: 12, sideOrientation: Mesh.BACKSIDE }, scene);
+      const vm = new StandardMaterial('skyTint', scene);
+      vm.emissiveColor = Color3.FromHexString(look.tint[0]);
+      vm.disableLighting = true;
+      vm.fogEnabled = false;
+      vm.alpha = look.tint[1];
+      vm.imageProcessingConfiguration = new ImageProcessingConfiguration();
+      veil.material = vm;
+      veil.infiniteDistance = true;
+      veil.isPickable = false;
+    }
   }
 
   return { sun, shadows, follow };

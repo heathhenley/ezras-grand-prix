@@ -42,10 +42,25 @@ after the first load (the service worker only registers over HTTPS).
 | `src/carmesh.js` | Builds the cars from `src/cars.json` and gives them paint, glass, wheels and spoilers. |
 | `tools/build-cars.mjs` | Makes `src/cars.json` from the Kenney Car Kit models in `tools/car-kit` (CC0). Notes at the top explain how to add a car. |
 | `tools/build-scenery.mjs` | Makes `src/scenery.json` (trees, bushes, rocks) from the Kenney Nature Kit models in `tools/nature-kit` (CC0). Each track picks its mix in `scenery` in `data.js`. |
+| `tools/build-props.mjs` | Makes `src/props.json` (cones, barriers, parked diggers) from the Kenney models in `tools/props` (CC0). |
+| `src/animals.js` | Deer, foxes, bears, rabbits, birds and dinosaurs. The animated ones are Quaternius models (CC0) in `public/assets/animals`. Each track sets how many in `animals` in `data.js`. |
 | `src/sound.js` | Engine, countdown beeps and jingles, all generated in code (no sound files). |
 | `src/race.js` | One race: grid, countdown, camera, HUD, finish. |
 | `src/showroom.js` | Turntable scene behind the menu and garage. |
 | `src/ui.js`, `src/style.css` | Menus, garage, HUD, results. |
+
+## Credits
+
+All art is free to use. Most of it is CC0 (public domain, no credit needed):
+
+- Cars, cones, barriers, diggers, trees, rocks, cacti: [Kenney](https://kenney.nl) (Car Kit, City Kit Roads, Nature Kit)
+- Dinosaurs, deer, stag, fox: [Quaternius](https://quaternius.com), downloaded from [Poly Pizza](https://poly.pizza)
+- Sky and sand: [Poly Haven](https://polyhaven.com). Asphalt: Poly Haven. Grass and lava: [ambientCG](https://ambientcg.com)
+
+Two models are CC-BY 3.0, which means they must be credited (the menu shows this line too):
+
+- Black bear by Poly by Google, via Poly Pizza (https://poly.pizza/m/56ym_pyVnel)
+- Rabbit by Sherkiz, via Poly Pizza (https://poly.pizza/m/Km89u3twcR)
 
 ## Easy tweaks
 

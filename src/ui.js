@@ -29,7 +29,8 @@ function unlockBar(wins) {
 const rivalsHtml = (level) => `<div class="rivals">Rivals <span>${'●'.repeat(level)}${'○'.repeat(MAX_LEVEL - level)}</span></div>`;
 
 export function menuHtml(save) {
-  const tracks = Object.entries(TRACKS).map(([id, t]) => {
+  // listed in the order they unlock
+  const tracks = Object.entries(TRACKS).sort((a, b) => winsNeeded('track', a[0]) - winsNeeded('track', b[0])).map(([id, t]) => {
     const open = isUnlocked('track', id, save.wins);
     return `<button class="chip ${save.track === id ? 'sel' : ''} ${open ? '' : 'locked'}" data-action="track" data-id="${id}">
       ${t.name}${open ? '' : lockBadge(winsNeeded('track', id))}</button>`;
@@ -48,6 +49,7 @@ export function menuHtml(save) {
     </div>
     ${rivalsHtml(save.level)}
     ${unlockBar(save.wins)}
+    <div class="credits">Art: Kenney, Quaternius, Poly Haven, ambientCG (CC0) · Black bear by Poly by Google, Rabbit by Sherkiz (CC-BY, via Poly Pizza)</div>
   </div>`;
 }
 
@@ -105,8 +107,11 @@ export function makeHud(root) {
       toMap = (x, z) => [(50 + (x - midX) * k).toFixed(1), (50 - (z - midZ) * k).toFixed(1)];
       const d = track.samples.filter((_, i) => i % 3 === 0).map((s, i) => (i ? 'L' : 'M') + toMap(s.x, s.z).join(' ')).join('') + 'Z';
       const [sx, sy] = toMap(xs[0], zs[0]);
+      const ramps = (track.jumps ?? []).map((j) => toMap(track.samples[j.idx].x, track.samples[j.idx].z))
+        .map(([x, y]) => `<rect class="jump" x="${x - 2.6}" y="${y - 2.6}" width="5.2" height="5.2" rx="1"/>`).join('')
+        + (track.obstacles ?? []).filter((o) => !o.cross).map((o) => toMap(o.x, o.z)).map(([x, y]) => `<circle class="tree" cx="${x}" cy="${y}" r="2"/>`).join('');
       const order = [...cars].sort((a, b) => a.isPlayer - b.isPlayer);
-      mapEl.innerHTML = `<path class="edge" d="${d}"/><path class="road" d="${d}"/><circle class="start" cx="${sx}" cy="${sy}" r="2.4"/>`
+      mapEl.innerHTML = `<path class="edge" d="${d}"/><path class="road" d="${d}"/><circle class="start" cx="${sx}" cy="${sy}" r="2.4"/>${ramps}`
         + order.map((c) => `<circle class="car ${c.isPlayer ? 'me' : ''}" r="${c.isPlayer ? 4.6 : 3.4}" fill="${c.color}"/>`).join('');
       dots = [...mapEl.querySelectorAll('.car')].map((el, i) => [el, order[i]]);
     },

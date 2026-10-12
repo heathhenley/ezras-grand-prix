@@ -101,10 +101,17 @@ export function buildCar(scene, cfg) {
   contact.material = cm;
   contact.parent = root;
 
-  let spin = 0;
+  let spin = 0, tilt = 0;
   return {
     root,
     stats: body.stats,
+    // height above the road and nose up/down (ramps and jumps); the dark patch stays on the ground
+    lift(y, slope, dt) {
+      tilt += (Math.atan(slope) - tilt) * Math.min(1, dt * 10);
+      scaled.position.y = y;
+      scaled.rotation.x = tilt;
+      contact.visibility = Math.max(0.3, 1 - y / 4);
+    },
     // called every frame with current speed (m/s) and steer (-1..1)
     animate(speed, steer, dt) {
       spin += (speed * dt) / wheelRadius;
