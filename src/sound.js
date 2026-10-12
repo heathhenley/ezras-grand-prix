@@ -121,6 +121,37 @@ function stopEngine(e) {
   e.high.stop(ctx.currentTime + 0.3);
 }
 
+// Tyre squeal: hiss squeezed through two narrow, slightly different filters, so it whistles.
+let squeal = null;
+function makeSqueal() {
+  const a = audio();
+  if (!a) return null;
+  const buffer = a.createBuffer(1, a.sampleRate, a.sampleRate), d = buffer.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  const src = a.createBufferSource(), gain = a.createGain();
+  src.buffer = buffer;
+  src.loop = true;
+  gain.gain.value = 0;
+  const bands = [1, 1.52].map((ratio) => {
+    const f = a.createBiquadFilter();
+    f.type = 'bandpass';
+    f.Q.value = 14;
+    src.connect(f).connect(gain);
+    return { f, ratio };
+  });
+  gain.connect(master);
+  src.start();
+  return { src, gain, bands };
+}
+
+// amount: 0 (gripping) .. 1 (sliding hard). Call every frame.
+export function screechSet(amount) {
+  if (!squeal) return;
+  const t = ctx.currentTime, v = Math.max(0, Math.min(1, amount));
+  squeal.gain.gain.setTargetAtTime(v * 0.5, t, v > 0 ? 0.04 : 0.09); // comes in quickly, lets go a little slower
+  for (const { f, ratio } of squeal.bands) f.frequency.setTargetAtTime((950 + 350 * v) * ratio, t, 0.1); // rises as it slides harder
+}
+
 // The player's engine, plus one for each rival.
 let rivals = [];
 export function engineStart(rivalCount = 0) {
@@ -128,6 +159,7 @@ export function engineStart(rivalCount = 0) {
   engine = makeEngine();
   if (!engine) return;
   rivals = Array.from({ length: rivalCount }, (_, k) => makeEngine([0.84, 1.19, 0.93][k % 3]));
+  squeal = makeSqueal();
   engineSet(0, false);
 }
 
@@ -150,4 +182,9 @@ export function engineStop() {
   for (const e of [engine, ...rivals]) stopEngine(e);
   engine = null;
   rivals = [];
+  if (squeal) {
+    squeal.gain.gain.setTargetAtTime(0, ctx.currentTime, 0.05);
+    squeal.src.stop(ctx.currentTime + 0.3);
+    squeal = null;
+  }
 }

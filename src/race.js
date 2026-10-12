@@ -107,6 +107,7 @@ export class Race {
           // after the finish: brake to a stop (holding the brake at a standstill would start reversing)
           ctrl = c.finished ? { steer: 0, throttle: 0, brake: c.speed > 1 ? 1 : 0 } : this.readControls(this.autoGas);
           sound.engineSet(Math.abs(c.speed) / c.stats.max, !!ctrl.throttle);
+          this.playerBraking = !!ctrl.brake;
         }
         else ctrl = aiControls(c, this.track, this.hw, dt, rubberBand(progress(c, n), pp, c.ai), this.inTheWay);
       }
@@ -130,6 +131,11 @@ export class Race {
       const dx = c.x - me.x, dz = c.z - me.z, far = Math.hypot(dx, dz);
       sound.rivalSet(k++, Math.abs(c.speed) / c.stats.max, far, far > 0.1 ? Math.max(-1, Math.min(1, ((dx * rx + dz * rz) / far) * 0.8)) : 0);
     }
+    // tyre squeal: turning hard at speed, or braking hard at speed, on tarmac
+    const fast = Math.abs(me.speed) / me.stats.max;
+    const cornering = Math.abs(me.steer) * fast, braking = this.playerBraking && fast > 0.45 ? 0.75 : 0;
+    const sliding = racing && !me.air && !me.offroad && !me.finished ? Math.max((cornering - 0.5) / 0.35, braking) : 0;
+    sound.screechSet(sliding);
     if (this.player.landed) sound.hit(0.45); // thump down after a jump
     this.hitCooldown -= dt;
     if (this.player.bonk > 2 && this.hitCooldown <= 0) { // drove into a tree
