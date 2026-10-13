@@ -41,7 +41,7 @@ export function aiControls(c, track, hw, dt, rubber = 1, cars = []) {
   c.lane = (c.lane ?? 0) + ((c.laneTarget ?? 0) - (c.lane ?? 0)) * Math.min(1, dt * 0.8);
 
   // pull out to pass a car that is just ahead in the same lane, instead of driving into the back of it
-  let dodge = 0, swerve = null;
+  let dodge = 0, swerve = null, swerveAt = 0;
   for (const o of cars) {
     if (o === c) continue;
     const ahead = (o.idx - c.idx + count) % count; // in track samples, 2 m each
@@ -51,6 +51,7 @@ export function aiControls(c, track, hw, dt, rubber = 1, cars = []) {
       const open = o.lateral > 0 ? -1 : 1;
       if ((ahead > 40 && ahead < count - 1) || (c.lateral - o.lateral) * open > 3.6) continue;
       swerve = o.lateral + open * 5;
+      swerveAt = ahead <= 40 ? ahead : 0; // how far off it is, in samples
       continue;
     }
     // right alongside (level with us, or within a couple of meters either way): ease away, so two
@@ -66,8 +67,10 @@ export function aiControls(c, track, hw, dt, rubber = 1, cars = []) {
   c.dodge = (c.dodge ?? 0) + (dodge - (c.dodge ?? 0)) * Math.min(1, dt * 3);
   const lane = Math.max(-hw + 1.2, Math.min(hw - 1.2, swerve ?? c.lane + c.dodge));
 
-  // aim at a point down the road; much closer when swerving, so the car gets across in time
-  const look = (c.idx + (swerve === null ? 5 + Math.floor(Math.max(0, c.speed) * 0.25) : 6)) % count;
+  // aim at a point down the road; when swerving, no further off than the thing in the way, so the car
+  // gets across in time (but not closer than that while it is still far off, or it turns into bends too late)
+  const far = 5 + Math.floor(Math.max(0, c.speed) * 0.25);
+  const look = (c.idx + (swerve === null ? far : Math.max(6, Math.min(far, swerveAt)))) % count;
   const t = samples[look];
   const tx = t.x + t.rx * lane, tz = t.z + t.rz * lane;
   const diff = wrapAngle(Math.atan2(tx - c.x, tz - c.z) - c.h);
@@ -75,7 +78,11 @@ export function aiControls(c, track, hw, dt, rubber = 1, cars = []) {
 
   let bend = 0;
   for (let k = 0; k <= 24; k += 8) bend = Math.max(bend, samples[(c.idx + k) % count].curve);
-  const target = c.stats.max * c.skill * rubber * (1 - Math.min(0.5, bend * ai.caution));
+  // however brave the driver, never into a sharp bend faster than the car can turn (see grip in stepCar).
+  // bend is how far the road turns over 30 m, so 30 / bend is how tight it is; gentle bends are not affected.
+  const reach = (30 / Math.max(bend, 0.01)) * c.stats.turn;
+  const cornering = reach / (1 + (0.35 * reach) / c.stats.max);
+  const target = Math.min(cornering, c.stats.max * c.skill * rubber * (1 - Math.min(0.5, bend * ai.caution)));
 
   return { steer, throttle: c.speed < target ? 1 : 0, brake: c.speed > target + 4 ? 1 : 0 };
 }
