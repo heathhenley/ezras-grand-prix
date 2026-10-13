@@ -3,11 +3,11 @@ import { FreeCamera } from '@babylonjs/core/Cameras/freeCamera';
 import { Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { Color3, Color4 } from '@babylonjs/core/Maths/math.color';
 
-import { TRACKS, COLORS, BODIES, WHEELS, SPOILERS, LAPS } from './data.js';
+import { TRACKS, COLORS, BODIES, WHEELS, SPOILERS, MACHINES, LAPS } from './data.js';
 import { buildTrack, wrapAngle } from './trackmath.js';
 import { buildWorld } from './world.js';
 import { buildCar } from './carmesh.js';
-import { makeCar, stepCar, collide, progress, resetCar, rescue, addJumps, addObstacles, addCrossers, stepObstacles } from './physics.js';
+import { makeCar, stepCar, collide, progress, resetCar, rescue, addHazards, stepObstacles } from './physics.js';
 import { KINDS as ANIMALS } from './animals.js';
 import { aiControls, rubberBand, difficulty } from './ai.js';
 import { readControls } from './input.js';
@@ -23,9 +23,7 @@ export class Race {
     const def = TRACKS[save.track];
     this.hw = def.width / 2;
     this.track = buildTrack(def.points);
-    addJumps(this.track, def.jumps);
-    addObstacles(this.track, this.hw, def.obstacles);
-    addCrossers(this.track, this.hw, (def.crossers ?? []).map(([kind, at]) => ({ kind, at, r: ANIMALS[kind].girth, pace: ANIMALS[kind].pace * 1.6 })));
+    addHazards(this.track, this.hw, def, { ...ANIMALS, ...MACHINES });
 
     const scene = (this.scene = new Scene(engine));
     const haze = def.sky?.haze ?? HORIZON; // colour the distance fades into

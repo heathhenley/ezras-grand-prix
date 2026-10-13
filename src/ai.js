@@ -5,16 +5,17 @@ export const MAX_LEVEL = 9; // ten levels, 0 to 9: one for each bar on the home 
 
 // How good the opponents are at each rival level (0 = gentle, MAX_LEVEL = tough).
 // The level goes up when the player wins (two steps for a runaway win) and down when they finish
-// 3rd or 4th (see main.js).
+// 3rd or 4th (see main.js). At the top the fastest rival runs a little quicker than the player's car
+// flat out, so it takes a clean drive (and some blocking) to win, but it can be done.
 export function difficulty(level) {
   const t = Math.max(0, Math.min(MAX_LEVEL, level)) / MAX_LEVEL;
   return {
-    skills: [0.85, 0.89, 0.93].map((s) => s + 0.15 * t), // share of top speed each opponent aims for
-    maxScale: 1 + 0.12 * t, // how far past the normal top speed they may go when chasing
-    caution: 0.43 - 0.41 * t, // how much they slow for bends
-    easeOff: 0.17 - 0.15 * t, // how much they wait for the player when ahead
-    catchUp: 0.05 + 0.09 * t, // how hard they push when behind
-    line: t, // 0 = wander around the road, 1 = cut every corner on the inside
+    skills: [0.86, 0.9, 0.94].map((s) => s + 0.11 * t), // share of top speed each opponent aims for
+    maxScale: 1.01 + 0.08 * t, // how far past the normal top speed they may go when chasing
+    caution: 0.39 - 0.3 * t, // how much they slow for bends
+    easeOff: 0.16 - 0.115 * t, // how much they wait for the player when ahead
+    catchUp: 0.06 + 0.06 * t, // how hard they push when behind
+    line: 0.1 + 0.9 * t, // 0 = wander around the road, 1 = cut every corner on the inside
   };
 }
 const EASY = difficulty(0);
@@ -46,7 +47,7 @@ export function aiControls(c, track, hw, dt, rubber = 1, cars = []) {
     const ahead = (o.idx - c.idx + count) % count; // in track samples, 2 m each
     const side = o.lateral - c.lateral;
     if (o.fixed) {
-      // a tree in the road: spotted from far off, and always passed on its open side with room to spare
+      // a tree, an animal or a digger in the road: spotted from far off, and always passed on its open side with room to spare
       const open = o.lateral > 0 ? -1 : 1;
       if ((ahead > 40 && ahead < count - 1) || (c.lateral - o.lateral) * open > 3.6) continue;
       swerve = o.lateral + open * 5;

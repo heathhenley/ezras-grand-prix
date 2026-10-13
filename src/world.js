@@ -4,7 +4,7 @@ import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import { DynamicTexture } from '@babylonjs/core/Materials/Textures/dynamicTexture';
 import { VertexData } from '@babylonjs/core/Meshes/mesh.vertexData';
 import { Color3 } from '@babylonjs/core/Maths/math.color';
-import { Vector3, Matrix, Quaternion } from '@babylonjs/core/Maths/math.vector';
+import { Vector3, Vector4, Matrix, Quaternion } from '@babylonjs/core/Maths/math.vector';
 import '@babylonjs/core/Meshes/thinInstanceMesh';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { ImageProcessingConfiguration } from '@babylonjs/core/Materials/imageProcessingConfiguration';
@@ -12,6 +12,7 @@ import { pbr as mat, tiled, HORIZON } from './env.js';
 import MODELS from './scenery.json'; // Kenney Nature Kit shapes, made by tools/build-scenery.mjs
 import PROPS from './props.json'; // cones, barriers, diggers... made by tools/build-props.mjs
 import { RAMP_LENGTH, RAMP_HEIGHT, GAP_LENGTH } from './physics.js';
+import { MACHINES } from './data.js';
 import { addAnimals } from './animals.js';
 import '@babylonjs/core/Meshes/instancedMesh';
 
@@ -215,31 +216,136 @@ function axolotl(scene, { x, z, yaw = 0, size = 2 }, shadows) {
   });
 }
 
+// The shape of one prop from props.json, in the kit's own colours.
+function propShape(scene, name, material) {
+  const p = PROPS[name], m = new Mesh(name, scene), vd = new VertexData();
+  const table = p.colors.map((hex) => Color3.FromHexString(hex).toLinearSpace());
+  vd.positions = p.pos;
+  vd.normals = p.nor;
+  vd.indices = Array.from({ length: p.pos.length / 3 }, (_, i) => i);
+  vd.colors = p.colIdx.flatMap((i) => [table[i].r, table[i].g, table[i].b, 1]);
+  vd.applyToMesh(m);
+  m.material = material;
+  return m;
+}
+
 // Fixed props from props.json (cones, barriers, parked diggers...). Collect where they go with add(),
 // then build() makes one shape per kind of prop, however many copies there are.
 function propSet(scene, shadows) {
   const spots = {};
+  const material = mat(scene, 'prop', '#ffffff', 0.6); // white, so the per-corner colours show through
   return {
+    material,
     add(name, x, z, yaw, tall, y = 0) {
       const s = tall / PROPS[name].height;
       (spots[name] ??= []).push([x, y, z, yaw, s, s, s]);
     },
     build() {
-      const material = mat(scene, 'prop', '#ffffff', 0.6); // white, so the per-corner colours show through
       for (const [name, list] of Object.entries(spots)) {
-        const p = PROPS[name], m = new Mesh(name, scene), vd = new VertexData();
-        const table = p.colors.map((hex) => Color3.FromHexString(hex).toLinearSpace());
-        vd.positions = p.pos;
-        vd.normals = p.nor;
-        vd.indices = Array.from({ length: p.pos.length / 3 }, (_, i) => i);
-        vd.colors = p.colIdx.flatMap((i) => [table[i].r, table[i].g, table[i].b, 1]);
-        vd.applyToMesh(m);
-        m.material = material;
+        const m = propShape(scene, name, material);
         place(m, list);
         shadows.addShadowCaster(m, false);
       }
     },
   };
+}
+
+// Diggers and trucks driving back and forth across the road (the obstacles made by addCrossers in
+// physics.js, which moves them). They do not turn round: they drive across, then reverse back.
+// Each has a flashing orange light on the roof.
+function movingMachines(scene, movers, track, material, shadows) {
+  if (!movers.length) return;
+  const lamp = MeshBuilder.CreateSphere('beacon', { diameter: 0.7, segments: 8 }, scene);
+  lamp.material = mat(scene, 'beacon', '#ff8c1a', 0.4);
+  lamp.material.emissiveColor = new Color3(1.6, 0.6, 0.05);
+  lamp.isVisible = false; // only the copies are shown
+  const list = movers.map((o, k) => {
+    const def = MACHINES[o.kind], m = propShape(scene, o.kind, material);
+    m.scaling.setAll(def.tall / PROPS[o.kind].height);
+    m.rotation.y = track.samples[o.idx].heading + Math.PI / 2; // nose pointing across the road
+    shadows.addShadowCaster(m, false);
+    const beacon = lamp.createInstance('beacon');
+    return { o, m, beacon, tall: def.tall, phase: k * 0.37 };
+  });
+  scene.onBeforeRenderObservable.add(() => {
+    const t = performance.now() / 1000;
+    for (const { o, m, beacon, tall, phase } of list) {
+      m.position.set(o.x, 0, o.z);
+      beacon.position.set(o.x, tall + 0.3, o.z);
+      beacon.isVisible = (t * 2 + phase) % 1 < 0.5;
+    }
+  });
+}
+
+// Giant things standing in the road on the road trip (the obstacles made by addRoadItems in physics.js).
+// items: those obstacles, each with a kind.
+function roadItems(scene, items, shadows) {
+  const spots = (kind) => items.filter((o) => o.kind === kind).map((o) => [o.x, 0, o.z, o.idx * 1.3]);
+  const put = (mesh, list) => { place(mesh, list); shadows.addShadowCaster(mesh, false); };
+
+  // green chiles: 4.5 m tall, standing on their tips
+  const chiles = spots('chile');
+  if (chiles.length) {
+    const TALL = 4.5, path = [], widths = [];
+    for (let i = 0; i <= 18; i++) {
+      const t = i / 18;
+      path.push(new Vector3(Math.sin(t * 2.6) * 0.5 - 0.25, 0.05 + t * TALL, 0)); // a gentle curl
+      widths.push(0.03 + 0.8 * Math.sin(Math.min(1, t * 1.2) * Math.PI / 2) ** 0.7 * (t > 0.9 ? Math.sqrt(1 - ((t - 0.9) / 0.1) ** 2 * 0.85) : 1)); // thin tip, rounded shoulders
+    }
+    const pod = MeshBuilder.CreateTube('chile', { path, radiusFunction: (i) => widths[i], tessellation: 14, cap: Mesh.CAP_ALL }, scene);
+    pod.material = mat(scene, 'chile', '#4f9a22', 0.3);
+    put(pod, chiles);
+    const top = path[path.length - 1];
+    const stem = MeshBuilder.CreateCylinder('chileStem', { diameterTop: 0.16, diameterBottom: 0.34, height: 0.9, tessellation: 8 }, scene);
+    stem.rotation.z = -0.5;
+    stem.position.set(top.x + 0.2, top.y + 0.35, 0);
+    stem.bakeCurrentTransformIntoVertices();
+    stem.material = mat(scene, 'chileStem', '#2f5d1c', 0.7);
+    put(stem, chiles);
+  }
+
+  // Del's frozen lemonade: a paper cup of yellow slush, with a lemon slice on the rim
+  const cups = spots('lemonade');
+  if (cups.length) {
+    const label = new DynamicTexture('dels', { width: 1024, height: 512 }, scene, true);
+    const g = label.getContext();
+    g.fillStyle = '#ffffff';
+    g.fillRect(0, 0, 1024, 512);
+    g.fillStyle = '#1f8a4c';
+    g.fillRect(0, 0, 1024, 70);
+    g.fillRect(0, 442, 1024, 70);
+    g.textAlign = 'center';
+    for (const x of [256, 768]) { // once on each side of the cup
+      g.fillStyle = '#ffd60a';
+      g.beginPath();
+      g.ellipse(x, 256, 200, 150, 0, 0, Math.PI * 2);
+      g.fill();
+      g.fillStyle = '#1f8a4c';
+      g.font = 'italic bold 170px Georgia, serif';
+      g.fillText("Del's", x, 300);
+      g.font = 'bold 44px system-ui, sans-serif';
+      g.fillText('LEMONADE', x, 360);
+    }
+    label.update();
+    const white = new Vector4(0, 0.9, 0.01, 0.91); // the ends of the cup take a plain bit of the label
+    const cup = MeshBuilder.CreateCylinder('cup', { diameterTop: 2.5, diameterBottom: 1.7, height: 3.2, tessellation: 28, faceUV: [white, new Vector4(1, 0, 0, 1), white] }, scene);
+    cup.position.y = 1.6;
+    cup.bakeCurrentTransformIntoVertices();
+    cup.material = mat(scene, 'cup', '#ffffff', 0.6);
+    cup.material.albedoTexture = label;
+    put(cup, cups);
+    const slush = MeshBuilder.CreateSphere('slush', { diameterX: 2.4, diameterY: 1.5, diameterZ: 2.4, segments: 12 }, scene);
+    slush.position.y = 3.2;
+    slush.bakeCurrentTransformIntoVertices();
+    slush.material = mat(scene, 'slush', '#ffe45c', 0.5);
+    put(slush, cups);
+    const lemon = MeshBuilder.CreateCylinder('lemon', { diameter: 1.5, height: 0.22, tessellation: 20 }, scene);
+    lemon.rotation.x = Math.PI / 2; // stand it on edge, sitting on the rim
+    lemon.position.set(1.05, 3.6, 0);
+    lemon.bakeCurrentTransformIntoVertices();
+    lemon.material = mat(scene, 'lemon', '#ffd60a', 0.5);
+    put(lemon, cups);
+  }
 }
 
 // A jump: a striped ramp across the road, then a dug-up trench with pipes in it, fenced with barriers.
@@ -570,7 +676,7 @@ export function buildWorld(scene, track, def, shadows) {
   }
 
   // a patch of earth and roots round each tree that grows in the road
-  const roadTrees = (track.obstacles ?? []).filter((o) => !o.cross);
+  const roadTrees = (track.obstacles ?? []).filter((o) => o.kind === 'tree');
   if (roadTrees.length) {
     const roots = MeshBuilder.CreateDisc('roots', { radius: 1, tessellation: 18 }, scene);
     roots.rotation.x = Math.PI / 2;
@@ -666,6 +772,7 @@ export function buildWorld(scene, track, def, shadows) {
 
   // Jumps (see addJumps in physics.js) and the building site around them
   const props = propSet(scene, shadows);
+  const movers = (track.obstacles ?? []).filter((o) => o.machine); // machines driving across the road
   const built = []; // [x, z, radius] of things the plants must keep clear of
   // glowing lava (shared by lava jumps and the volcano); it pulses, so it is left out of the freeze below
   const lava = mat(scene, 'lava', '#1a0500', 0.9);
@@ -699,34 +806,47 @@ export function buildWorld(scene, track, def, shadows) {
     shadows.addShadowCaster(steel, false);
 
     const siteRand = rng(77);
-    const nearJump = (i) => (track.jumps ?? []).some((j) => Math.abs(((i - j.idx + count * 1.5) % count) - count / 2) < 45);
+    const near = (i, idx, far) => Math.abs(((i - idx + count * 1.5) % count) - count / 2) < far; // samples i and idx are close together
+    const nearJump = (i) => (track.jumps ?? []).some((j) => near(i, j.idx, 45));
+    const nearMover = (i) => movers.some((o) => near(i, o.idx, 5)); // where a machine drives across
     // parked machines and stacks of crates beside the road
-    const machines = { 'tractor-shovel': 3.6, 'truck-flat': 3.1, 'garbage-truck': 3.9, tractor: 3.6 };
     for (let n = 0; n < 14; n++) {
       const i = Math.floor(((n + siteRand()) / 14) * count), s = samples[i];
       const off = (n % 2 ? 1 : -1) * (hw + 11 + siteRand() * 12), x = s.x + s.rx * off, z = s.z + s.rz * off;
-      const name = Object.keys(machines)[n % 4];
-      props.add(name, x, z, s.heading + (siteRand() - 0.5) * 2.4, machines[name]);
+      const name = Object.keys(MACHINES)[n % 4];
+      if (nearMover(i)) continue;
+      props.add(name, x, z, s.heading + (siteRand() - 0.5) * 2.4, MACHINES[name].tall);
       built.push([x, z, 7]);
     }
     for (let n = 0; n < 26; n++) {
       const i = Math.floor(siteRand() * count), s = samples[i];
       const off = (siteRand() < 0.5 ? 1 : -1) * (hw + 5 + siteRand() * 6), x = s.x + s.rx * off, z = s.z + s.rz * off, yaw = siteRand() * 6.28;
+      if (nearMover(i)) continue;
       props.add('box', x, z, yaw, 1.3);
       if (n % 2) props.add('box', x + 0.2, z + 0.1, yaw + 0.5, 1.3, 1.3);
       if (n % 3 === 0) props.add('box', x + 1.5, z + 0.3, yaw + 1, 1.3);
     }
     // runs of site fencing along the outside of the road, and cones round the bends
     samples.forEach((s, i) => {
-      if (nearJump(i)) return;
+      if (nearJump(i) || nearMover(i)) return;
       if (i % 2 === 0 && Math.floor(i / 40) % 3 === 0) props.add('construction-fence', s.x - s.rx * (hw + 4.5), s.z - s.rz * (hw + 4.5), s.heading, 2.1);
       if (i % 3 === 0 && s.curve > 0.5) props.add('construction-cone', s.x + s.rx * (hw + 1.6), s.z + s.rz * (hw + 1.6), 0, 0.9);
     });
   }
+  // a row of cones on each side of the road, leading up to where a machine drives across
+  for (const o of movers) {
+    for (const back of [16, 11, 6]) {
+      const s = samples[(o.idx - back + count) % count];
+      for (const side of [-1, 1]) props.add('construction-cone', s.x + s.rx * side * (hw + 1.6), s.z + s.rz * side * (hw + 1.6), 0, 0.9);
+    }
+    built.push([samples[o.idx].x, samples[o.idx].z, hw + 12]); // keep its path clear of trees and rocks
+  }
   props.build();
+  movingMachines(scene, movers, track, props.material, shadows);
+  roadItems(scene, (track.obstacles ?? []).filter((o) => !o.cross && o.kind !== 'tree'), shadows);
 
   // Animals beside the road (how many of each kind is set per track in data.js)
-  const crossers = (track.obstacles ?? []).filter((o) => o.cross);
+  const crossers = (track.obstacles ?? []).filter((o) => o.cross && !o.machine);
   if (def.animals || crossers.length) {
     const wild = rng(404), list = [];
     // the ones that walk across the road follow their obstacle (see addCrossers in physics.js)

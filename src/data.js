@@ -62,8 +62,8 @@ export const TRACKS = {
     width: 14,
     ground: '#4f9c4b',
     obstacles: 8, // trees growing in the road that you can crash into
-    crossers: [['deer', 0.19], ['stag', 0.51], ['fox', 0.73]], // animals walking across the road: [kind, how far round the lap]
-    animals: { deer: 5, stag: 3, bear: 2, fox: 4, rabbit: 9, birds: 2 }, // birds = flocks overhead
+    crossers: [['deer', 0.19], ['rabbit', 0.295], ['stag', 0.51], ['fox', 0.73], ['deer', 0.83]], // animals walking across the road: [kind, how far round the lap]
+    animals: { deer: 7, stag: 4, bear: 3, fox: 6, rabbit: 12, birds: 3 }, // birds = flocks overhead
     scenery: {
       treeCount: 950, // a proper forest
       treeGap: 7, // and it comes right up to the road
@@ -79,6 +79,8 @@ export const TRACKS = {
   },
   // jumps: [x, z] spots on the road where a ramp goes (put them on straights). site: cranes [x, z] and
   // half-built steel frames [x, z, floors], which should sit well clear of the road.
+  // machines: diggers and trucks driving back and forth across the road: [kind from MACHINES, how far round
+  // the lap]. Keep them off the jumps.
   construction: {
     name: 'Construction Site',
     width: 15,
@@ -89,6 +91,7 @@ export const TRACKS = {
       [32, 36], [-30, 62], [-110, 100], [-190, 70], [-218, -10],
     ],
     jumps: [[-10, -100], [100, 75], [-45, 70]],
+    machines: [['tractor-shovel', 0.25], ['truck-flat', 0.4], ['tractor', 0.8], ['tractor-shovel', 0.92]],
     site: {
       cranes: [[-95, -18], [128, -22]],
       frames: [[15, -40, 4], [-160, 8, 2], [72, -8, 3]],
@@ -103,6 +106,8 @@ export const TRACKS = {
   // A road trip. The map is split into lands, each covering a rectangle [west, east, south, north]
   // with its own ground and scenery. A road sign goes up wherever the road enters a land with a new name.
   // The lap runs: Rhode Island summer -> New Mexico -> Rhode Island winter -> back to summer.
+  // inRoad: giant things standing in that land's stretch of road to steer round: { kind, count, r: how
+  // wide it is to hit, in meters }. The kinds are built in world.js.
   roadtrip: {
     name: 'Rhode Trip',
     width: 14,
@@ -120,6 +125,7 @@ export const TRACKS = {
         name: 'Rhode Island',
         motto: 'The Ocean State',
         ground: '#7cc464',
+        inRoad: { kind: 'lemonade', count: 3, r: 1.1 }, // cups of Del's frozen lemonade
         scenery: {
           trees: ['tree_oak', 'tree_detailed', 'tree_default', 'tree_fat', 'tree_plateau', 'tree_pineDefaultA'],
           small: ['plant_bushLarge', 'plant_bushDetailed', 'stone_largeB'],
@@ -148,6 +154,7 @@ export const TRACKS = {
         mesas: true, // flat-topped hills on the horizon
         hills: ['#b58f84', '#c4835c'],
         balloons: 8,
+        inRoad: { kind: 'chile', count: 5, r: 0.9 }, // green chiles
         axolotl: { x: 227, z: 34, yaw: Math.PI, size: 2 }, // giant pink one in a pond, inside the hairpin
         colors: { leaf: '#5b9a50', bush: '#8f9352', rock: '#b4683f', stone: '#cf9a6c' },
         scenery: {
@@ -171,9 +178,9 @@ export const TRACKS = {
     jumps: [[-92, -88], [160, -10], [-24, 116]],
     jumpStyle: 'lava', // rock ramps over rivers of lava instead of building-site trenches
     volcano: { x: 70, z: 360 },
-    animals: { trex: 3, stego: 4, threehorn: 4, longneck: 3, parasaur: 4, raptor: 6, pterosaurs: 3 },
+    animals: { trex: 4, stego: 5, threehorn: 5, longneck: 4, parasaur: 6, raptor: 9, pterosaurs: 4 },
     animalsAt: [{ kind: 'longneck', x: 15, z: 5, yaw: 2.4 }], // wading in the lake
-    crossers: [['stego', 0.3], ['parasaur', 0.42], ['threehorn', 0.64], ['raptor', 0.9]], // dinosaurs walking across the road
+    crossers: [['stego', 0.22], ['trex', 0.32], ['parasaur', 0.42], ['threehorn', 0.6], ['raptor', 0.69], ['raptor', 0.9]], // dinosaurs walking across the road (keep them off the jumps)
     colors: { rock: '#6d625c', stone: '#8a7f78' },
     scenery: {
       treeCount: 340,
@@ -188,26 +195,36 @@ export const TRACKS = {
   },
 };
 
+// Building-site machines (shapes in src/props.json). tall: height in meters. girth: how wide it is to
+// crash into, in meters, and pace: how fast it drives, in m/s (for the ones crossing the road).
+export const MACHINES = {
+  'tractor-shovel': { tall: 3.6, girth: 2.2, pace: 3 },
+  'truck-flat': { tall: 3.1, girth: 2.3, pace: 4 },
+  'garbage-truck': { tall: 3.9, girth: 2.6, pace: 3.5 },
+  tractor: { tall: 3.6, girth: 1.9, pace: 2.5 },
+};
+
 // [wins needed, kind, id]  — wins needed 0 means you start with it.
+// The first wins go track, upgrade, track, upgrade... until every track is open.
 export const UNLOCKS = [
   [0, 'body', 'racer'], [0, 'color', 'red'], [0, 'color', 'blue'], [0, 'wheels', 'black'],
   [0, 'spoiler', 'none'], [0, 'track', 'oval'],
-  [1, 'color', 'orange'],
-  [2, 'wheels', 'chrome'],
-  [3, 'spoiler', 'small'],
-  [4, 'body', 'muscle'],
-  [5, 'track', 'twisty'],
-  [6, 'color', 'green'],
-  [7, 'wheels', 'gold'],
-  [8, 'spoiler', 'wing'],
-  [8, 'track', 'construction'],
-  [9, 'color', 'purple'],
-  [10, 'body', 'buggy'],
-  [11, 'track', 'lake'],
-  [12, 'track', 'roadtrip'],
-  [13, 'color', 'pink'],
+  [1, 'track', 'twisty'],
+  [2, 'color', 'orange'],
+  [3, 'track', 'construction'],
+  [4, 'wheels', 'chrome'],
+  [5, 'track', 'lake'],
+  [6, 'body', 'muscle'],
+  [7, 'track', 'roadtrip'],
+  [8, 'spoiler', 'small'],
+  [9, 'color', 'green'],
+  [10, 'wheels', 'gold'],
+  [11, 'body', 'buggy'],
+  [12, 'spoiler', 'wing'],
+  [13, 'color', 'purple'],
   [14, 'body', 'formula'],
-  [15, 'color', 'yellow'],
+  [15, 'color', 'pink'],
+  [16, 'color', 'yellow'],
   [18, 'body', 'future'],
   [20, 'color', 'black'],
 ];

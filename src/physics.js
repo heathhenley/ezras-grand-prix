@@ -17,30 +17,61 @@ export function addJumps(track, spots = []) {
   track.jumps = spots.map(([x, z]) => ({ idx: locate(track, x, z).idx, lip: locate(track, x, z).idx * track.step }));
 }
 
-// Puts solid things (trees) in the road, spread round the lap. They alternate sides, so there is
-// always a clear way past, and none are near the start line.
-export function addObstacles(track, hw, howMany = 0) {
-  track.obstacles = [];
-  for (let k = 0; k < howMany; k++) {
-    const idx = Math.round(track.count * (0.08 + (0.86 * (k + 0.5)) / howMany));
-    const s = track.samples[idx], lateral = (k % 2 ? 1 : -1) * hw * (0.3 + 0.12 * (k % 3));
-    // idx, lateral and speed let the rival drivers treat it like a parked car and steer round it
-    track.obstacles.push({ idx, lateral, x: s.x + s.rx * lateral, z: s.z + s.rz * lateral, r: 0.9, speed: 0, fixed: true });
+// Everything on a track that the cars have to deal with: jumps, things standing in the road and things
+// crossing it. def is the track from data.js. kinds says how big and fast each crossing thing is:
+// { name: { girth, pace } } (the animals in animals.js, plus MACHINES in data.js).
+export function addHazards(track, hw, def, kinds) {
+  addJumps(track, def.jumps);
+  addObstacles(track, hw, def.obstacles);
+  for (const land of def.lands ?? []) {
+    if (!land.inRoad) continue;
+    const [x0, x1, z0, z1] = land.area;
+    addRoadItems(track, hw, land.inRoad, (s) => s.x >= x0 && s.x < x1 && s.z >= z0 && s.z < z1);
   }
+  addCrossers(track, hw, [
+    ...(def.crossers ?? []).map(([kind, at]) => ({ kind, at, r: kinds[kind].girth, pace: kinds[kind].pace * 1.6 })), // animals hurry across
+    ...(def.machines ?? []).map(([kind, at]) => ({ kind, at, r: kinds[kind].girth, pace: kinds[kind].pace, machine: true })),
+  ]);
 }
 
-// Animals that walk back and forth across the road, and turn round when something drives into them.
-// list: [{ kind, at (0..1 round the lap), r (how wide it is to hit), pace (m/s) }]. Call after addObstacles.
+// Stands a solid thing in the road at sample idx. k is its number in the row: they alternate sides,
+// so there is always a clear way past.
+function standInRoad(track, hw, k, idx, kind, r) {
+  const s = track.samples[idx], lateral = (k % 2 ? 1 : -1) * hw * (0.3 + 0.12 * (k % 3));
+  // idx, lateral and speed let the rival drivers treat it like a parked car and steer round it
+  track.obstacles.push({ kind, idx, lateral, x: s.x + s.rx * lateral, z: s.z + s.rz * lateral, r, speed: 0, fixed: true });
+}
+
+// Puts trees in the road, spread round the lap, with none near the start line.
+export function addObstacles(track, hw, howMany = 0) {
+  track.obstacles = [];
+  for (let k = 0; k < howMany; k++) standInRoad(track, hw, k, Math.round(track.count * (0.08 + (0.86 * (k + 0.5)) / howMany)), 'tree', 0.9);
+}
+
+// Puts other solid things in the road along one stretch of it (giant chiles in the desert, say).
+// item: { kind, count, r (how wide it is to hit) }. inside(sample) says whether a bit of road is in that
+// stretch. They keep off the sharp bends, and away from the start line and the ends of the stretch.
+// Call after addObstacles.
+export function addRoadItems(track, hw, { kind, count, r }, inside) {
+  const { samples, count: n } = track, spots = [];
+  samples.forEach((s, idx) => {
+    if (idx > 40 && idx < n - 40 && s.curve < 0.5 && inside(samples[idx - 15]) && inside(samples[idx + 15])) spots.push(idx);
+  });
+  for (let k = 0; k < count && spots.length; k++) standInRoad(track, hw, k, spots[Math.floor(((k + 0.5) / count) * spots.length)], kind, r);
+}
+
+// Animals and machines that go back and forth across the road, and turn back when something drives into them.
+// list: [{ kind, at (0..1 round the lap), r (how wide it is to hit), pace (m/s), machine? }]. Call after addObstacles.
 export function addCrossers(track, hw, list = []) {
-  list.forEach(({ kind, at, r, pace }, k) => {
+  list.forEach(({ kind, at, r, pace, machine }, k) => {
     const idx = Math.round(track.count * at);
-    const o = { kind, idx, r, pace, speed: 0, fixed: true, cross: true, span: hw + 5, dir: k % 2 ? 1 : -1, lateral: (k % 2 ? -1 : 1) * hw * 0.6, calm: 0, bumped: false };
+    const o = { kind, idx, r, pace, machine, speed: 0, fixed: true, cross: true, span: hw + 5, dir: k % 2 ? 1 : -1, lateral: (k % 2 ? -1 : 1) * hw * 0.6, calm: 0, bumped: false };
     track.obstacles.push(o);
   });
   stepObstacles(track, 0);
 }
 
-// Moves the road-crossing animals along. Call once a frame.
+// Moves the road-crossing animals and machines along. Call once a frame.
 export function stepObstacles(track, dt) {
   for (const o of track.obstacles ?? []) {
     if (!o.cross) continue;
