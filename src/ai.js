@@ -1,6 +1,6 @@
 // Opponent driving: chase a point a little way down the road, slow down for bends.
 import { wrapAngle } from './trackmath.js';
-import { BOOST_MAX, DRAFT_MAX } from './physics.js';
+import { BOOST_MAX, DRAFT_MAX, GRIP_FALL } from './physics.js';
 
 export const MAX_LEVEL = 9; // ten levels, 0 to 9: one for each bar on the home screen
 
@@ -88,8 +88,7 @@ export function aiControls(c, track, hw, dt, rubber = 1, cars = []) {
   for (let k = 0; k <= 24; k += 8) bend = Math.max(bend, samples[(c.idx + k) % count].curve);
   // however brave the driver, never into a sharp bend faster than the car can turn (see grip in stepCar).
   // bend is how far the road turns over 30 m, so 30 / bend is how tight it is; gentle bends are not affected.
-  const reach = (30 / Math.max(bend, 0.01)) * c.stats.turn;
-  const cornering = reach / (1 + (0.35 * reach) / c.stats.max);
+  const cornering = cornerSpeed(c.stats, bend);
   // boosts and slipstream raise top speed for everyone, so the drivers aim higher too
   const lift = (c.boost > 0 ? BOOST_MAX : 1) * (1 + DRAFT_MAX * (c.draft ?? 0));
   const target = Math.min(cornering, c.stats.max * c.skill * rubber * lift * (1 - Math.min(0.5, bend * ai.caution)));
@@ -98,6 +97,13 @@ export function aiControls(c, track, hw, dt, rubber = 1, cars = []) {
   const nitro = (c.nitro ?? 0) > 0.4 && bend < 0.15 && (rubber > 1.02 || c.nitro >= 1) ? 1 : 0;
 
   return { steer, throttle: c.speed < target ? 1 : 0, brake: c.speed > target + 4 ? 1 : 0, nitro };
+}
+
+// The fastest a car can take a bend on full steering lock (see grip in stepCar). bend is how far the
+// road turns over 30 m (a sample's curve), so 30 / bend is how tight it is.
+export function cornerSpeed(stats, bend) {
+  const reach = (30 / Math.max(bend, 0.01)) * stats.turn;
+  return reach / (1 + (GRIP_FALL * reach) / stats.max);
 }
 
 // Keeps races close: opponents ease off when ahead of the player, push a bit when behind. Close by

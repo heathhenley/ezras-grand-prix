@@ -8,6 +8,7 @@
 // skeletons load wrongly and they crumple.)
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
+import { Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { LoadAssetContainerAsync } from '@babylonjs/core/Loading/sceneLoader';
 import '@babylonjs/core/Meshes/instancedMesh';
 import '@babylonjs/loaders/glTF/2.0';
@@ -123,8 +124,10 @@ function wander(w, dt, t) {
 }
 
 // spots: [{ kind, x, z, yaw, crossing? }]. flocks: how many groups circle overhead; flyers picks what they are.
+const FORWARD = new Vector3(0, 0, 1), SHOW_RANGE = 170;
 const FLYERS = { birds: { size: 1, color: '#2b2b30' }, pterosaurs: { size: 3.2, color: '#8a6f4d' } };
-export function addAnimals(scene, shadows, spots, flocks = 0, flyers = 'birds') {
+// ground(x, z): how high the ground is there (banks and hills), so they walk up and over them.
+export function addAnimals(scene, shadows, spots, flocks = 0, flyers = 'birds', ground = () => 0) {
   const walkers = [], herds = {};
   for (const spot of spots) (herds[spot.kind] ??= []).push(spot);
   // the models arrive a moment after the race starts; a missing file just means no herd
@@ -157,9 +160,29 @@ export function addAnimals(scene, shadows, spots, flocks = 0, flyers = 'birds') 
     }
   }
 
+  let tick = 0;
   scene.onBeforeRenderObservable.add(() => {
     const t = performance.now() / 1000, dt = Math.min(0.05, scene.getEngine().getDeltaTime() / 1000);
-    for (const w of walkers) wander(w, dt, t);
+    for (const w of walkers) {
+      wander(w, dt, t);
+      const p = w.node.position;
+      if (p.x !== w.gx || p.z !== w.gz) { w.gx = p.x; w.gz = p.z; p.y = ground(p.x, p.z); } // only when it has moved
+    }
+    // The models are always drawn while near (they change shape as they move, so the usual check for
+    // being on screen does not work), so a few times a second hide the ones far off or behind the camera,
+    // and pause their animations.
+    const cam = scene.activeCamera;
+    if (cam && ++tick % 8 === 0) {
+      const c = cam.globalPosition, f = cam.getDirection(FORWARD);
+      for (const w of walkers) {
+        const p = w.node.position, dx = p.x - c.x, dz = p.z - c.z, d = Math.hypot(dx, dz);
+        const show = d < 30 || (d < SHOW_RANGE && (dx * f.x + dz * f.z) / d > -0.1);
+        if (show === w.shown) continue;
+        w.shown = show;
+        w.node.setEnabled(show);
+        if (show) w.playing?.play(w.playing.loopAnimation); else w.playing?.pause();
+      }
+    }
     for (const a of circling) {
       const turn = (t + a.phase) * 0.12;
       a.node.position.set(Math.sin(turn) * a.radius, a.height + Math.sin((t + a.phase) * 0.3) * 4, Math.cos(turn) * a.radius);

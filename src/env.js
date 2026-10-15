@@ -165,7 +165,7 @@ export function setupPost(scene, camera, { touch = false } = {}) {
         if (step === 2) pipe.chromaticAberrationEnabled = false;
         if (step === 3) { pipe.samples = 1; pipe.fxaaEnabled = true; }
       }
-      if (pipe.chromaticAberrationEnabled) {
+      if (pipe.chromaticAberrationEnabled && pipe.chromaticAberration) { // null once the pipeline is disposed
         fringe += ((player.boost > 0 ? 9 : 0) - fringe) * Math.min(1, dt * 5);
         pipe.chromaticAberration.aberrationAmount = fringe;
       }

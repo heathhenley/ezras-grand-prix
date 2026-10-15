@@ -14,9 +14,13 @@ import '@babylonjs/core/Meshes/thinInstanceMesh';
 import { pbr as mat } from './env.js';
 import { WALL_MARGIN } from './physics.js';
 import { wrapAngle } from './trackmath.js';
+import { dressRoadside, cullByDistance } from './roadside.js';
 
 const SAFE = WALL_MARGIN + 1.8; // past the road edge: further than any part of a car can reach
 const CHUNK = 220; // meters: size of the map squares the merged meshes are split into
+// Chunks further than this from the camera are not drawn: by then they are deep in the haze, and mostly
+// hidden behind the banks and trees along the road anyway. Grass and flowers only show close up.
+export const NEAR_RANGE = 290, NEAR_DETAIL = 110;
 
 // ---------- texture atlas: every sign, banner and board, drawn once onto one canvas ----------
 const AW = 2048, AH = 1024;
@@ -314,7 +318,9 @@ export function buildVenue(scene, track, def, shadows, ctx) {
   material.albedoTexture = atlas;
   const chunks = new Map();
   // far: the horizon scenery, kept in its own chunks that cast no shadows
-  const B = (x, z, far = false) => { const key = `${far ? 'far' : ''}${Math.floor(x / CHUNK)},${Math.floor(z / CHUNK)}`; if (!chunks.has(key)) chunks.set(key, new Batch()); return chunks.get(key); };
+  const B = (x, z, far = false, size = CHUNK) => { const key = `${far === true ? 'far' : far || ''}${Math.floor(x / size)},${Math.floor(z / size)}`; if (!chunks.has(key)) chunks.set(key, new Batch()); return chunks.get(key); };
+  // det: small close-up things (grass, flowers, reeds) that cast no shadow and are only drawn nearby
+  const D = (x, z) => B(x, z, 'det', 80);
   const ground = new Batch(); // flat paint and gravel: never casts shadows
   const updates = [];
   let placedAds = 0;
@@ -325,10 +331,13 @@ export function buildVenue(scene, track, def, shadows, ctx) {
   const avoid = []; // sample indices to keep clear of (jumps, things crossing the road, trees in the road)
   for (const j of track.jumps ?? []) avoid.push([j.idx, 40]);
   for (const o of track.obstacles ?? []) avoid.push([o.idx, o.cross ? 10 : 6]);
+  samples.forEach((s, i) => { if (s.bridge || s.gap || s.wall < hw + WALL_MARGIN - 0.05) avoid.push([i, 4]); }); // bridges, and the railings up to them
+  const base = track.groundAt ?? (() => 0); // the hills under the road (the banks come later)
   const near = (i, j, far) => Math.abs(((i - j + count * 1.5) % count) - count / 2) < far;
   const avoided = (i) => avoid.some(([j, far]) => near(i, j, far));
   // is the spot (x, z) at least `gap` meters clear of every bit of road, the water and other buildings?
-  const free = (x, z, r, gap = SAFE) => ctx.roadGap(x, z) > gap + r && !ctx.blocked(x, z, r);
+  const free = (x, z, r, gap = SAFE) => (ctx.field ? ctx.field.gap(x, z, gap + r + 2) : ctx.roadGap(x, z)) > gap + r && !ctx.blocked(x, z, r);
+  const groundAt = (x, z, r = 1) => ctx.terrain?.groundAt(x, z, r) ?? 0; // how high the banks are there
   // check a rectangle in frame f (x from x0 to x1, z from z0 to z1) is free, then claim it
   const claimRect = (f, x0, x1, z0, z1, gap = SAFE) => {
     const pts = [];
@@ -344,7 +353,7 @@ export function buildVenue(scene, track, def, shadows, ctx) {
   const beside = (i, side, off, along = 0) => {
     const s = samples[(i + count) % count];
     const x = s.x + s.rx * side * off + s.tx * along, z = s.z + s.rz * side * off + s.tz * along;
-    return frame(x, 0, z, Math.atan2(side * s.rx, side * s.rz)); // local +z points away from the road
+    return frame(x, base(x, z), z, Math.atan2(side * s.rx, side * s.rz)); // local +z points away from the road
   };
   const turnAt = (i) => wrapAngle(samples[(i + 15) % count].heading - samples[i].heading); // + bends right
 
@@ -395,7 +404,7 @@ export function buildVenue(scene, track, def, shadows, ctx) {
   // ================= START / FINISH =================
   const s0 = samples[0];
   {
-    const span = hw + SAFE + 0.6, f = frame(s0.x, 0, s0.z, s0.heading); // local x across the road, z along it
+    const span = hw + SAFE + 0.6, f = frame(s0.x, s0.y ?? 0, s0.z, s0.heading); // local x across the road, z along it
     const b = B(s0.x, s0.z), TOP = 7.2, TALL = 3.0;
     for (const side of [-1, 1]) {
       const x = side * span;
@@ -435,7 +444,7 @@ export function buildVenue(scene, track, def, shadows, ctx) {
   }
   // grid boxes painted on the road where the cars line up
   for (const [back, lat] of [[4, -3.5], [4, 3.5], [9, -3.5], [9, 3.5]]) {
-    const s = samples[count - back], f = frame(s.x + s.rx * lat, 0.034, s.z + s.rz * lat, s.heading);
+    const s = samples[count - back], f = frame(s.x + s.rx * lat, (s.y ?? 0) + 0.034, s.z + s.rz * lat, s.heading);
     const bar = (x0, z0, x1, z1) => ground.flat(f.at(x0, 0, z0), f.at(x1, 0, z0), f.at(x1, 0, z1), f.at(x0, 0, z1), '#f2f2f2');
     bar(-1.5, 2.6, 1.5, 2.9);
     bar(-1.5, 1.2, -1.25, 2.9);
@@ -505,7 +514,7 @@ export function buildVenue(scene, track, def, shadows, ctx) {
   const tyreLine = (i, side, off, along) => {
     const s = samples[i % count], x = s.x + s.rx * side * off + s.tx * along, z = s.z + s.rz * side * off + s.tz * along;
     if (!free(x, z, 0.5)) return false;
-    tyres.add(x, 0, z, rand() * 6.28, 1, TYRE_COLS[Math.floor(i / 2) % TYRE_COLS.length]);
+    tyres.add(x, base(x, z), z, rand() * 6.28, 1, TYRE_COLS[Math.floor(i / 2) % TYRE_COLS.length]);
     return true;
   };
   bends.forEach((bend, k) => {
@@ -548,7 +557,7 @@ export function buildVenue(scene, track, def, shadows, ctx) {
         const s = samples[n % count], t = samples[(n + 1) % count], inner = hw + 1.25;
         const fade = Math.min(1, (n - g0) / 6, (g1 - n) / 6), outer = hw + 1.25 + (WALL_MARGIN - 0.8) * fade;
         if (outer - inner < 0.3) continue;
-        const p = (q, d) => [q.x + q.rx * side * d, 0.028, q.z + q.rz * side * d];
+        const p = (q, d) => [q.x + q.rx * side * d, (q.y ?? 0) + 0.028, q.z + q.rz * side * d];
         ground.flat(p(s, inner), p(t, inner), p(t, outer), p(s, outer), Color3.Lerp(lin(style.gravel), lin('#ffffff'), ((n * 7) % 5) * 0.03));
       }
     }
@@ -574,7 +583,8 @@ export function buildVenue(scene, track, def, shadows, ctx) {
 
 
   // ================= extras for each kind of track =================
-  const extras = { pits, blimp, ferris, bridge, cabin, toadstools, logs, woodFence, site, arches, nests };
+  const later = []; // small things that can sit up on the banks: placed once the banks are fixed
+  const extras = { pits, blimp, ferris, bridge, cabin, woodFence, site, arches };
   for (const [name, fn] of Object.entries(extras)) if (dress[name]) fn(dress[name]);
 
   // sponsor boards along the start straight, just past the walls
@@ -675,7 +685,7 @@ export function buildVenue(scene, track, def, shadows, ctx) {
     // from `at`, go on round the lap to the first straight-ish spot with room for the legs and steps
     let i = Math.floor(at * count), f = null;
     for (let n = 0; n < count / 3 && !f; n += 3, i = (i + 3) % count) {
-      const q = samples[i], g = frame(q.x, 0, q.z, q.heading); // local x across the road
+      const q = samples[i], g = frame(q.x, q.y ?? 0, q.z, q.heading); // local x across the road
       if (!avoided(i) && q.curve < 0.5 && [-1, 1].every((side) => free(...xz(g.at(side * span, 0, 0)), 1.2) && free(...xz(g.at(side * (span + 4.5), 0, 0)), 2))) f = g;
     }
     if (!f) return;
@@ -726,11 +736,11 @@ export function buildVenue(scene, track, def, shadows, ctx) {
       const i = Math.floor(rand() * count), side = rand() < 0.5 ? -1 : 1, s = samples[i];
       const off = hw + SAFE + 1 + rand() * 22, x = s.x + s.rx * side * off, z = s.z + s.rz * side * off;
       if (!free(x, z, 1.5)) continue;
-      const tall = 0.8 + rand() * 1.6, f = frame(x, 0, z, rand() * 6), b = B(x, z);
+      const tall = 0.8 + rand() * 1.6, f = frame(x, groundAt(x, z) - 0.05, z, rand() * 6), b = B(x, z);
       b.cyl(f, 0, 0, 0, tall * 0.28, tall * 0.22, tall, 7, '#f4ead8');
       b.ball(f, 0, tall, 0, tall * 0.75, tall * 0.42, tall * 0.75, '#e63946', 9, 4, { band: [2, '#f4ead8'] });
       for (let k = 0; k < 5; k++) { const a = k * 1.3 + rand(); b.ball(f, Math.sin(a) * tall * 0.45, tall + tall * 0.3, Math.cos(a) * tall * 0.45, tall * 0.11, tall * 0.07, tall * 0.11, '#ffffff', 5, 3); }
-      ctx.built.push([x, z, 2]);
+      ctx.built.push([x, z, 2, 1]);
       n++;
     }
   }
@@ -741,10 +751,10 @@ export function buildVenue(scene, track, def, shadows, ctx) {
       const i = Math.floor(rand() * count), side = rand() < 0.5 ? -1 : 1, s = samples[i];
       const off = hw + SAFE + 2 + rand() * 18, x = s.x + s.rx * side * off, z = s.z + s.rz * side * off;
       if (!free(x, z, 3)) continue;
-      const len = 3 + rand() * 4, r = 0.3 + rand() * 0.25, f = frame(x, 0, z, rand() * 6), b = B(x, z);
+      const len = 3 + rand() * 4, r = 0.3 + rand() * 0.25, f = frame(x, groundAt(x, z, len / 2) - 0.1, z, rand() * 6), b = B(x, z);
       b.cyl(f, -len / 2, r * 0.9, 0, r, r * 0.85, len, 7, '#6e4b2e', { capCol: '#d1a46e', base: true });
       if (rand() < 0.6) b.ball(f, len * 0.2, r * 1.8, 0, 0.3, 0.2, 0.3, '#e63946', 6, 3, { band: [2, '#f4ead8'] }); // a little toadstool on top
-      ctx.built.push([x, z, len / 2 + 0.5]);
+      ctx.built.push([x, z, len / 2 + 0.5, 1]);
       n++;
     }
   }
@@ -793,13 +803,18 @@ export function buildVenue(scene, track, def, shadows, ctx) {
         b.box(f, x + 0.35, 1.4, -0.72, 0.18, 0.18, 0.05, k % 2 ? '#e63946' : '#2fbf71'); // vacant / engaged
       }
     }
-    // heaps of sand and gravel, skips full of rubble and pallets of bricks, all over the site
+    siteRest();
+    // heaps of sand and gravel, skips full of rubble and pallets of bricks, all over the site (they can sit
+    // up on the banks, so they go in once those are fixed)
+    later.push(heaps);
+  }
+  function heaps() {
     const xs = samples.map((q) => q.x), zs = samples.map((q) => q.z);
     const [minX, maxX, minZ, maxZ] = [Math.min(...xs) - 50, Math.max(...xs) + 50, Math.min(...zs) - 50, Math.max(...zs) + 50];
     for (let n = 0, tries = 0; n < 70 && tries < 900; tries++) {
       const x = minX + rand() * (maxX - minX), z = minZ + rand() * (maxZ - minZ), kind = n % 4, r = kind < 2 ? 6 : 2.6;
       if (!free(x, z, r + 1)) continue;
-      const f = frame(x, 0, z, rand() * 6), b = B(x, z);
+      const f = frame(x, groundAt(x, z, kind < 2 ? 3 : 2), z, rand() * 6), b = B(x, z);
       if (kind < 2) {
         const R = 3 + rand() * 4.5, H = R * (0.45 + rand() * 0.25);
         b.cyl(f, 0, -0.1, 0, R, R * 0.2, H, 9, pickOf(rand, ['#c9a36a', '#9a9a96', '#b58a55', '#8f8a80', '#a8743f']), { twist: rand() });
@@ -810,9 +825,12 @@ export function buildVenue(scene, track, def, shadows, ctx) {
         b.box(f, 0, 0.07, 0, 4.2, 0.14, 1.4, '#c99a62');
         for (let k = 0; k < 3; k++) b.box(f, (k - 1) * 1.35, 0.7, 0, 1.2, 1.1, 1.2, '#b5523b', { topCol: '#c96a50' });
       }
-      ctx.built.push([x, z, r]);
+      ctx.built.push([x, z, r, 1]);
       n++;
     }
+  }
+  function siteRest() {
+    const props = ctx.props;
     // the site office: a portable cabin up on blocks, with steps and a sign
     for (const [i0, side] of [[25, 1], [25, -1], [-30, 1], [-30, -1], [60, 1], [60, -1]]) {
       const i = (i0 + count) % count, f = beside(i, side, hw + SAFE + 4);
@@ -852,7 +870,7 @@ export function buildVenue(scene, track, def, shadows, ctx) {
       let i = Math.floor(at * count), f, span = hw + SAFE + 2.4;
       for (let n = 0; n < count / 3; n += 3, i = (i + 3) % count) {
         const q = samples[i];
-        f = frame(q.x, 0, q.z, q.heading);
+        f = frame(q.x, q.y ?? 0, q.z, q.heading);
         if (!avoided(i) && q.curve < 0.5 && [-1, 1].every((side) => free(...xz(f.at(side * span, 0, 0)), 2))) break;
         f = null;
       }
@@ -885,24 +903,32 @@ export function buildVenue(scene, track, def, shadows, ctx) {
       const i = Math.floor(rand() * count), side = rand() < 0.5 ? -1 : 1, s = samples[i];
       const off = hw + SAFE + 3 + rand() * 10, x = s.x + s.rx * side * off, z = s.z + s.rz * side * off;
       if (!free(x, z, 3)) continue;
-      const f = frame(x, 0, z, rand() * 6), b = B(x, z);
+      const f = frame(x, groundAt(x, z, 2.6) - 0.1, z, rand() * 6), b = B(x, z);
       b.cyl(f, 0, 0, 0, 2.6, 2.2, 0.6, 10, '#8b6a3e', { capCol: '#6e5230' });
       for (let k = 0; k < 4; k++) {
         const a = k * 1.7, egg = ['#f4ead8', '#cfe8c2', '#f6d7a8', '#d8e4f4'][k];
         b.ball(f, Math.sin(a) * 1.0, 1.3, Math.cos(a) * 1.0, 0.6, 0.85, 0.6, egg, 8, 5);
         b.ball(f, Math.sin(a) * 1.0 + 0.3, 1.6, Math.cos(a) * 1.0 + 0.45, 0.14, 0.14, 0.14, '#8e44ec', 5, 3);
       }
-      ctx.built.push([x, z, 4]);
+      ctx.built.push([x, z, 4, 1]);
       n++;
     }
   }
+
+  // Everything that needs flat ground is in place: fix where the banks go, then put the small things on them,
+  // and the close-up layers along the road (roadside.js)
+  ctx.terrain?.freeze();
+  for (const name of ['toadstools', 'logs', 'nests']) if (dress[name]) ({ toadstools, logs, nests })[name](dress[name]);
+  for (const fn of later) fn();
+  const outsideSide = -Math.sign(samples.reduce((t, _, i) => t + turnAt(i), 0)) || -1;
+  dressRoadside({ track, hw, def, B, D, frame, free, claim: (x, z, r) => ctx.built.push([x, z, r, 1]), ground: groundAt, landAt: ctx.landAt, rand, avoided, flag, uv: uvOf, lake: ctx.lake, outside: outsideSide });
 
   // ================= far-off scenery to fill the horizon =================
   farRing();
   function farRing() {
     const cx = samples.reduce((t, s) => t + s.x, 0) / count, cz = samples.reduce((t, s) => t + s.z, 0) / count;
     const r2 = rng(31);
-    for (let n = 0; n < 420; n++) {
+    for (let n = 0; n < 320; n++) { // (fewer than before the banks: they hide the lower ones now)
       const a = r2() * Math.PI * 2, d = 300 + r2() * 150;
       const x = cx + Math.sin(a) * d * 1.15, z = cz + Math.cos(a) * d;
       const land = ctx.landAt(x, z), kind = land.far ?? dress.far ?? 'trees';
@@ -961,20 +987,26 @@ export function buildVenue(scene, track, def, shadows, ctx) {
   farMat.albedoTexture = atlas;
   farMat.fogEnabled = false;
   const haze = scene.fogColor.toLinearSpace(), density = scene.fogDensity * 0.62;
+  const gapMemo = new Map(); // (the distance to the road, worked out once per 6 m square: it is slow)
+  const farGap = (x, z) => { const key = Math.round(x / 6) * 100000 + Math.round(z / 6); if (!gapMemo.has(key)) gapMemo.set(key, ctx.roadGap(x, z)); return gapMemo.get(key); };
   for (const [key, batch] of chunks) {
     if (!key.startsWith('far')) continue;
     for (let i = 0, v = 0; v < batch.P.length; v += 3, i += 4) {
-      const d = ctx.roadGap(batch.P[v], batch.P[v + 2]) + 70, k = 1 - Math.exp(-((d * density) ** 2));
+      const d = farGap(batch.P[v], batch.P[v + 2]) + 70, k = 1 - Math.exp(-((d * density) ** 2));
       for (let c = 0; c < 3; c++) batch.C[i + c] += ([haze.r, haze.g, haze.b][c] - batch.C[i + c]) * k;
     }
   }
+  const cull = []; // [mesh, how far away it is still drawn]: the horizon chunks always are
   for (const [key, batch] of chunks) {
-    const m = batch.build(scene, 'venue' + key, key.startsWith('far') ? farMat : material);
+    const far = key.startsWith('far'), det = key.startsWith('det');
+    const m = batch.build(scene, 'venue' + key, far ? farMat : material);
     if (!m) continue;
     m.receiveShadows = true;
     m.freezeWorldMatrix();
-    if (!key.startsWith('far')) shadows.addShadowCaster(m, false);
+    if (!far && !det) shadows.addShadowCaster(m, false);
+    if (!far) cull.push([m, det ? NEAR_DETAIL : NEAR_RANGE]);
   }
+  cullByDistance(scene, cull);
   const paintMat = mat(scene, 'venuePaint', '#ffffff', 1); // fully rough, or it glints white at low angles
   paintMat.albedoTexture = atlas;
   paintMat.specularIntensity = 0.3;

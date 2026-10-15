@@ -212,7 +212,7 @@ export function createFx(scene, camera, { def = {}, touch = false } = {}) {
           while (m.smoke >= 1) {
             m.smoke--;
             const side = R() < 0.5 ? -1 : 1;
-            fx.burst('smoke', c.x + fx_ * back + rx * half * side, 0.25, c.z + fz * back + rz * half * side, Math.min(1, slide));
+            fx.burst('smoke', c.x + fx_ * back + rx * half * side, (c.gy ?? 0) + 0.25, c.z + fz * back + rz * half * side, Math.min(1, slide));
           }
         }
         // dirt off the back wheels when driving on grass, sand or snow (or bouncing through the rough)
@@ -222,11 +222,11 @@ export function createFx(scene, camera, { def = {}, touch = false } = {}) {
           while (m.dust >= 1) {
             m.dust--;
             const side = R() < 0.5 ? -1 : 1, x = c.x + fx_ * back + rx * half * side, z = c.z + fz * back + rz * half * side;
-            if (!col) { fx.burst('embers', x, 0.3, z, 0.3); continue; }
+            if (!col) { fx.burst('embers', x, (c.gy ?? 0) + 0.3, z, 0.3); continue; }
             const kick = c.speed * 0.25;
-            soft.spawn(x, 0.3, z, -fx_ * kick + rx * side * 1.5 + (R() - 0.5) * 2, 1.2 + R() * 2, -fz * kick + rz * side * 1.5 + (R() - 0.5) * 2,
+            soft.spawn(x, (c.gy ?? 0) + 0.3, z, -fx_ * kick + rx * side * 1.5 + (R() - 0.5) * 2, 1.2 + R() * 2, -fz * kick + rz * side * 1.5 + (R() - 0.5) * 2,
               0.8 + R() * 0.5, 0.6, 2.2 + fast * 1.6, col.r * (0.9 + R() * 0.2), col.g * (0.9 + R() * 0.2), col.b * (0.9 + R() * 0.2), 1.25, PUFF, 1.5, 2.2);
-            if (R() < 0.35) soft.spawn(x, 0.3, z, -fx_ * kick * 0.5 + (R() - 0.5) * 3, 3 + R() * 3, -fz * kick * 0.5 + (R() - 0.5) * 3, 0.6, 0.16, 0.14, col.r * 0.7, col.g * 0.7, col.b * 0.7, 1, PAPER, 16, 0.5);
+            if (R() < 0.35) soft.spawn(x, (c.gy ?? 0) + 0.3, z, -fx_ * kick * 0.5 + (R() - 0.5) * 3, 3 + R() * 3, -fz * kick * 0.5 + (R() - 0.5) * 3, 0.6, 0.16, 0.14, col.r * 0.7, col.g * 0.7, col.b * 0.7, 1, PAPER, 16, 0.5);
           }
         }
         // boost: flames out of the exhaust, trailing behind the car

@@ -204,9 +204,9 @@ export class Race {
     this.pickups.update(dt, this.t);
 
     for (const c of this.cars) {
-      c.mesh.root.position.set(c.x, 0, c.z);
+      c.mesh.root.position.set(c.x, c.gy, c.z); // on the road (its shadow patch too), whatever height that is
       c.mesh.root.rotation.y = c.h;
-      c.mesh.lift(c.y, c.air ? -c.vy / Math.max(8, c.speed) : -c.climb / Math.max(8, c.speed), dt);
+      c.mesh.lift(c.y - c.gy, -c.slope, dt); // air under the wheels, and nose up or down with the hill or the jump
       c.mesh.animate(c.speed, c.steer, dt);
     }
     this.fx.update(dt, this); // particles and the camera

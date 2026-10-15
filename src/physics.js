@@ -1,5 +1,5 @@
 // Arcade car physics + lap tracking. Pure JS so it can be simulated headless.
-import { locate, wrapAngle } from './trackmath.js';
+import { locate, wrapAngle, addElevation } from './trackmath.js';
 
 export const WALL_MARGIN = 7; // how far past the road edge you can go before the invisible wall
 
@@ -9,6 +9,9 @@ export const RAMP_HEIGHT = 1.6;
 export const GAP_LENGTH = 20; // rough ground after the lip; land in it and you are slowed down
 const GRAVITY = 22; // stronger than real life, so jumps feel snappy
 const ROUGH = 0.55; // speed multiplier in the rough
+// Leaps (jumps over a lower bit of road, see addElevation): the kicker always throws the car far enough
+// to clear the gap, however slowly it arrives
+const LEAP_SPEED = 30, LEAP_VY = 9;
 
 // Marks where the jumps are. spots is a list of [x, z] points on or near the road; each ramp's lip
 // goes at the nearest bit of track.
@@ -21,7 +24,10 @@ export function addJumps(track, spots = []) {
 // crossing it. def is the track from data.js. kinds says how big and fast each crossing thing is:
 // { name: { girth, pace } } (the animals in animals.js, plus MACHINES in data.js).
 export function addHazards(track, hw, def, kinds) {
+  addElevation(track, def, hw, WALL_MARGIN); // hills, bridges and leaps (heights on every sample)
   addJumps(track, def.jumps);
+  // a leap's kicker ramp works like any other jump ramp, but with no rough ground after it
+  for (const l of track.leaps) track.jumps.push({ idx: l.lip, lip: l.lip * track.step, leap: l });
   addObstacles(track, hw, def.obstacles);
   for (const land of def.lands ?? []) {
     if (!land.inRoad) continue;
@@ -39,7 +45,7 @@ export function addHazards(track, hw, def, kinds) {
 function standInRoad(track, hw, k, idx, kind, r) {
   const s = track.samples[idx], lateral = (k % 2 ? 1 : -1) * hw * (0.3 + 0.12 * (k % 3));
   // idx, lateral and speed let the rival drivers treat it like a parked car and steer round it
-  track.obstacles.push({ kind, idx, lateral, x: s.x + s.rx * lateral, z: s.z + s.rz * lateral, r, speed: 0, fixed: true });
+  track.obstacles.push({ kind, idx, lateral, x: s.x + s.rx * lateral, y: s.y ?? 0, z: s.z + s.rz * lateral, r, speed: 0, fixed: true });
 }
 
 // Puts trees in the road, spread round the lap, with none near the start line.
@@ -65,7 +71,7 @@ export function addRoadItems(track, hw, { kind, count, r }, inside) {
 export function addCrossers(track, hw, list = []) {
   list.forEach(({ kind, at, r, pace, machine }, k) => {
     const idx = Math.round(track.count * at);
-    const o = { kind, idx, r, pace, machine, speed: 0, fixed: true, cross: true, span: hw + 5, dir: k % 2 ? 1 : -1, lateral: (k % 2 ? -1 : 1) * hw * 0.6, calm: 0, bumped: false };
+    const o = { kind, idx, y: track.samples[idx].y ?? 0, r, pace, machine, speed: 0, fixed: true, cross: true, span: hw + 5, dir: k % 2 ? 1 : -1, lateral: (k % 2 ? -1 : 1) * hw * 0.6, calm: 0, bumped: false };
     track.obstacles.push(o);
   });
   stepObstacles(track, 0);
@@ -105,7 +111,9 @@ export function makeCar(stats, track, idx, lateral) {
     idx,
     lateral,
     lap: -1, // laps completed; starts at -1 because the grid is behind the line
-    y: 0, // height above the road (ramps and jumps)
+    y: s.y ?? 0, // height in the world (the road's height, plus any air under the wheels)
+    gy: s.y ?? 0, // the road's height under the car (not counting ramps)
+    slope: 0, // nose up (+) or down: the slope the car is sitting on, or its climb in the air
     vy: 0,
     air: false,
     climb: 0, // how fast the ramp is lifting the car
@@ -122,9 +130,11 @@ export function makeCar(stats, track, idx, lateral) {
 }
 
 // Boost: how much faster the car may go, and how much extra push it gets, while c.boost > 0
-export const BOOST_MAX = 1.25;
+export const BOOST_MAX = 1.2;
 const BOOST_PUSH = 1.4; // times the car's normal acceleration, on top of it
-export const DRAFT_MAX = 0.07; // top speed gained from a full slipstream
+export const DRAFT_MAX = 0.05; // top speed gained from a full slipstream
+// how much steering the car loses at top speed (0 = none). Low, so fast cars still get round the bends
+export const GRIP_FALL = 0.2;
 export const PAD_BOOST = 1.4; // seconds of boost from a boost pad
 
 // Fires the nitro: the fuller the meter, the longer the boost. Needs at least a quarter of a meter.
@@ -156,18 +166,18 @@ export function stepCar(c, ctrl, dt, track, hw) {
     else c.speed = Math.max(-10, c.speed - st.accel * 0.5 * dt); // reverse
   } else if (ctrl.throttle) {
     if (c.speed < 0) c.speed += st.brake * dt;
-    else c.speed += st.accel * dt * (1 - 0.5 * Math.min(1, c.speed / max));
+    else if (c.speed < max) c.speed = Math.min(max, c.speed + st.accel * dt * (1 - 0.5 * c.speed / max)); // never pushes past top speed
   } else {
     c.speed -= Math.sign(c.speed) * Math.min(Math.abs(c.speed), 5 * dt);
   }
-  // boosting: an extra shove forward (unless braking), so it kicks in right away
-  if (boosting && !c.air && !ctrl.brake && c.speed >= 0) c.speed += st.accel * BOOST_PUSH * dt * (1 - 0.6 * Math.min(1, c.speed / max));
+  // boosting: an extra shove forward (unless braking) up to the boosted top speed, so it kicks in right away
+  if (boosting && !c.air && !ctrl.brake && c.speed >= 0 && c.speed < max) c.speed = Math.min(max, c.speed + st.accel * BOOST_PUSH * dt * (1 - 0.6 * c.speed / max));
   // too fast for here: shed it quickly on the grass, but let a boost fade out gently on the road
   if (c.speed > max && !c.air) c.speed = Math.max(max, c.speed - (c.offroad || c.rough ? 25 : 9) * dt);
 
   const a = Math.abs(c.speed);
   // steering needs some speed, but even at a crawl the car can turn enough to nose round an obstacle
-  const grip = Math.min(1, Math.max(a / 6, a > 0.4 ? 0.35 : 0)) * (1 - 0.35 * Math.min(1, a / st.max)) * (c.air ? 0.15 : 1);
+  const grip = Math.min(1, Math.max(a / 6, a > 0.4 ? 0.35 : 0)) * (1 - GRIP_FALL * Math.min(1, a / st.max)) * (c.air ? 0.15 : 1);
   c.h = wrapAngle(c.h + c.steer * st.turn * grip * Math.sign(c.speed) * dt);
   c.x += Math.sin(c.h) * c.speed * dt;
   c.z += Math.cos(c.h) * c.speed * dt;
@@ -175,7 +185,7 @@ export function stepCar(c, ctrl, dt, track, hw) {
   // solid obstacles: stop the car going through, and take away the speed it had heading into them
   c.bonk = 0;
   for (const o of track.obstacles ?? []) {
-    if (c.y > 2) continue; // flying over
+    if (Math.abs(c.y - (o.y ?? 0)) > 2) continue; // flying over it, or on another level of road
     for (const off of [HIT_OFF, -HIT_OFF]) {
       const fx = Math.sin(c.h), fz = Math.cos(c.h);
       const dx = o.x - (c.x + fx * off), dz = o.z - (c.z + fz * off), d = Math.hypot(dx, dz), reach = o.r + HIT_R;
@@ -196,47 +206,73 @@ export function stepCar(c, ctrl, dt, track, hw) {
   }
 
   const loc = locate(track, c.x, c.z, c.idx);
-  const wall = hw + WALL_MARGIN;
+  const wall = track.samples[loc.idx].wall ?? hw + WALL_MARGIN; // closes in to the railings on bridges
   if (Math.abs(loc.lateral) > wall) {
     const s = track.samples[loc.idx];
     const push = loc.lateral - Math.sign(loc.lateral) * wall;
     c.x -= s.rx * push;
     c.z -= s.rz * push;
-    c.speed *= 1 - Math.min(1, 3 * dt);
+    if (!c.air) c.speed *= 1 - Math.min(1, 3 * dt); // (in the air it just slides along: no stalling over a gap)
     loc.lateral = Math.sign(loc.lateral) * wall;
   }
   updateLap(c, loc.idx, track.count);
   c.idx = loc.idx;
   c.lateral = loc.lateral;
 
-  // ramps: the car rides up the ramp, and if it is still climbing when the ramp ends, it flies
+  // Height: the car follows the road up and down the hills, rides up ramps, and flies when the ground
+  // drops away faster than gravity can pull it down (off the lip of a ramp, or over a sharp crest)
+  const s = track.samples[loc.idx], onRoad = Math.abs(loc.lateral) <= hw + 1;
+  const road = track.roadY ? track.roadY(loc.idx, c.x, c.z) : 0;
+  let ramp = 0, rampSlope = 0, rough = false, kicker = null;
   if (track.jumps?.length) {
-    const d = along(track, loc.idx, c.x, c.z), onRoad = Math.abs(loc.lateral) <= hw + 1;
-    let ground = 0, rough = false;
+    const d = along(track, loc.idx, c.x, c.z);
     for (const j of track.jumps) {
       const past = d - j.lip; // meters past the lip (negative = before it)
-      if (onRoad && past > -RAMP_LENGTH && past <= 0) ground = RAMP_HEIGHT * (1 + past / RAMP_LENGTH);
-      if (onRoad && past > 0 && past < GAP_LENGTH) rough = true;
+      if (onRoad && past > -RAMP_LENGTH && past <= 0) { ramp = RAMP_HEIGHT * (1 + past / RAMP_LENGTH); rampSlope = RAMP_HEIGHT / RAMP_LENGTH; kicker = j.leap ?? null; }
+      if (onRoad && !j.leap && past > 0 && past < GAP_LENGTH) rough = true;
     }
-    c.landed = false;
-    if (c.air) {
-      c.airTime += dt;
-      c.vy -= GRAVITY * dt;
-      c.y += c.vy * dt;
-      if (c.y <= ground) {
-        c.y = ground; c.vy = 0; c.air = false; c.landed = true;
-        addNitro(c, Math.min(0.25, c.airTime * 0.3)); // a reward for flying
-      }
-    } else if (ground < c.y - 0.05 && c.climb > 1) {
-      c.air = true; // drove off the end of the ramp
-      c.vy = c.climb;
+  }
+  const ground = s.gap ? -Infinity : road + ramp; // over the open gap of a leap there is nothing to land on
+  c.gy = s.gap ? (track.groundAt?.(c.x, c.z) ?? 0) : road;
+  c.landed = false;
+  if (c.air) {
+    c.airTime += dt;
+    c.vy -= GRAVITY * dt;
+    c.y += c.vy * dt;
+    // in the air the car gently straightens up to point down the road, so it lands driving the right way
+    const off = wrapAngle(s.heading - c.h);
+    if (Math.abs(off) < 1.3 && c.speed > 0) c.h = wrapAngle(c.h + off * Math.min(1, dt * 2.5));
+    if (c.y <= ground) {
+      const big = c.airTime > 0.25; // a real jump, not just floating over a bump
+      c.y = ground; c.vy = 0; c.air = false; c.landed = big;
+      if (big) addNitro(c, Math.min(0.25, c.airTime * 0.3)); // a reward for flying
+    } else if (s.gap && c.y < road - 3) catchCar(c, track); // fell short of the landing: no harm done
+  } else {
+    const free = c.y + c.vy * dt - 0.5 * GRAVITY * dt * dt; // where the car would be if nothing held it up
+    if (ground < free - 0.01) {
+      c.air = true; // the ground fell away under it
       c.airTime = 0;
+      if (c.kicker) { c.vy = Math.max(c.vy, LEAP_VY); c.speed = Math.max(c.speed, LEAP_SPEED); } // a leap: big air, always enough
+      c.y = free;
+      c.vy -= GRAVITY * dt;
     } else {
-      c.climb = Math.max(0, Math.min(12, (ground - c.y) / dt));
+      c.vy = Math.max(-25, Math.min(14, (ground - c.y) / dt));
       c.y = ground;
     }
-    c.rough = rough && !c.air;
   }
+  c.kicker = c.air ? null : kicker;
+  c.climb = c.air ? 0 : Math.max(0, c.vy); // how fast the ground is lifting the car
+  c.slope = c.air ? c.vy / Math.max(8, Math.abs(c.speed)) : (s.grade ?? 0) * Math.cos(c.h - s.heading) + rampSlope;
+  c.rough = rough && !c.air;
+}
+
+// A car that dropped into the gap of a leap is popped back onto the landing, rolling on down the road
+function catchCar(c, track) {
+  const { count } = track;
+  const leap = track.leaps.reduce((best, l) => (((c.idx - l.lip + count) % count) < ((c.idx - best.lip + count) % count) ? l : best));
+  c.idx = leap.land;
+  resetCar(c, track);
+  c.speed = 14;
 }
 
 // Slipstream: a car tucked in close behind another one gets pulled along a bit, and its nitro trickles up.
@@ -299,10 +335,11 @@ export function rescue(c, track, dt) {
 
 // Put a stuck car back on the road, facing the right way
 export function resetCar(c, track) {
+  if (track.samples[c.idx].gap) c.idx = track.leaps.find((l) => track.samples[(l.land - 1 + track.count) % track.count].gap)?.land ?? c.idx; // never in mid air
   const s = track.samples[c.idx];
   c.x = s.x; c.z = s.z; c.h = s.heading;
   c.speed = 0; c.steer = 0; c.lateral = 0;
-  c.y = 0; c.vy = 0; c.air = false; c.climb = 0; c.boost = 0;
+  c.y = c.gy = s.y ?? 0; c.vy = 0; c.air = false; c.climb = 0; c.slope = 0; c.boost = 0; c.kicker = null;
 }
 
 // Each car is two circles, one over each axle, which fits a car shape much better than one big circle.

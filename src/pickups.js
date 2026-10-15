@@ -28,7 +28,7 @@ export function placePickups(track, hw, def) {
   const settle = (idx) => { for (let k = 0; k < 60; k++) { const i = (idx + k) % n; if (clear(i)) return i; } return -1; };
   const at = (idx, lateral, y = 0) => {
     const s = samples[idx];
-    return { idx, lateral, x: s.x + s.rx * lateral, y, z: s.z + s.rz * lateral, h: s.heading };
+    return { idx, lateral, x: s.x + s.rx * lateral, y: y + (s.y ?? 0), z: s.z + s.rz * lateral, h: s.heading, tip: -Math.atan(s.grade ?? 0) }; // y: up off the road, wherever it is
   };
 
   // Boost pads: listed ones, or one on the run-up to every jump plus one on each of the longest straights
@@ -84,7 +84,7 @@ export function stepPickups(track, cars, dt, onPad, onStar) {
     let onAny = false;
     for (const p of c.finished ? [] : track.pads) {
       const d = (((c.idx - p.idx) % n) + n + n / 2) % n - n / 2; // samples past the pad's middle
-      if (Math.abs(d * step) < PAD_LEN / 2 && Math.abs(c.lateral - p.lateral) < PAD_W / 2 + 0.8 && c.y < 0.6) {
+      if (Math.abs(d * step) < PAD_LEN / 2 && Math.abs(c.lateral - p.lateral) < PAD_W / 2 + 0.8 && c.y - (c.gy ?? 0) < 0.6) {
         onAny = true;
         if (!c.onPad) onPad(c, p);
         c.boost = Math.max(c.boost, PAD_BOOST);
@@ -169,12 +169,12 @@ export function buildPickups(scene, track) {
   const chevC = new Float32Array(pads.length * 3 * 4);
   const q = new Quaternion(), one = new Vector3(1, 1, 1), v = new Vector3(), mtx = new Matrix();
   pads.forEach((p, i) => {
-    Quaternion.FromEulerAnglesToRef(0, p.h, 0, q);
-    Matrix.ComposeToRef(one, q, v.set(p.x, 0.07, p.z), mtx);
+    Quaternion.FromEulerAnglesToRef(p.tip ?? 0, p.h, 0, q); // lying along the slope of the road
+    Matrix.ComposeToRef(one, q, v.set(p.x, p.y + 0.07, p.z), mtx);
     mtx.copyToArray(plateM, i * 16);
     for (let k = 0; k < 3; k++) {
       const off = (k - 1) * 2.5 - 0.3;
-      Matrix.ComposeToRef(one, q, v.set(p.x + Math.sin(p.h) * off, 0.09, p.z + Math.cos(p.h) * off), mtx);
+      Matrix.ComposeToRef(one, q, v.set(p.x + Math.sin(p.h) * off, p.y + 0.09 - Math.sin(p.tip ?? 0) * off, p.z + Math.cos(p.h) * off), mtx);
       mtx.copyToArray(chevM, (i * 3 + k) * 16);
     }
   });
