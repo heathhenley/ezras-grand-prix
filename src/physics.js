@@ -114,13 +114,37 @@ export function makeCar(stats, track, idx, lateral) {
     finished: false,
     finishTime: 0,
     offroad: false,
+    boost: 0, // seconds of boost left (boost pads and nitro); >0 while boosting
+    nitro: 0, // 0..1 nitro meter, filled by stars, jumps and slipstreaming
+    draft: 0, // 0..1 how much slipstream the car is getting from the car in front
+    airTime: 0, // seconds in the air on the current (or last) jump
   };
 }
+
+// Boost: how much faster the car may go, and how much extra push it gets, while c.boost > 0
+export const BOOST_MAX = 1.25;
+const BOOST_PUSH = 1.4; // times the car's normal acceleration, on top of it
+export const DRAFT_MAX = 0.07; // top speed gained from a full slipstream
+export const PAD_BOOST = 1.4; // seconds of boost from a boost pad
+
+// Fires the nitro: the fuller the meter, the longer the boost. Needs at least a quarter of a meter.
+// Returns true when it fired.
+export function fireNitro(c) {
+  if (c.nitro < 0.25 || c.boost > 0.5 || c.finished) return false;
+  c.boost = Math.max(c.boost, 0.8 + 2.2 * c.nitro);
+  c.nitro = 0;
+  return true;
+}
+
+export const addNitro = (c, amount) => { c.nitro = Math.min(1, c.nitro + amount * (c.isPlayer ? 1 : 0.6)); }; // rivals fill slower
 
 export function stepCar(c, ctrl, dt, track, hw) {
   const st = c.stats;
   c.offroad = Math.abs(c.lateral) > hw + 0.8;
-  const max = st.max * (c.offroad ? st.offroad : c.rough ? ROUGH : 1) * (c.maxScale ?? 1);
+  c.boost = Math.max(0, c.boost - dt);
+  const boosting = c.boost > 0;
+  const max = st.max * (c.offroad ? st.offroad : c.rough ? ROUGH : 1) * (c.maxScale ?? 1)
+    * (boosting ? BOOST_MAX : 1) * (1 + DRAFT_MAX * c.draft);
 
   // ease steering toward the input so tapping buttons isn't twitchy
   c.steer += (ctrl.steer - c.steer) * Math.min(1, dt * 8);
@@ -136,7 +160,10 @@ export function stepCar(c, ctrl, dt, track, hw) {
   } else {
     c.speed -= Math.sign(c.speed) * Math.min(Math.abs(c.speed), 5 * dt);
   }
-  if (c.speed > max && !c.air) c.speed = Math.max(max, c.speed - 25 * dt);
+  // boosting: an extra shove forward (unless braking), so it kicks in right away
+  if (boosting && !c.air && !ctrl.brake && c.speed >= 0) c.speed += st.accel * BOOST_PUSH * dt * (1 - 0.6 * Math.min(1, c.speed / max));
+  // too fast for here: shed it quickly on the grass, but let a boost fade out gently on the road
+  if (c.speed > max && !c.air) c.speed = Math.max(max, c.speed - (c.offroad || c.rough ? 25 : 9) * dt);
 
   const a = Math.abs(c.speed);
   // steering needs some speed, but even at a crawl the car can turn enough to nose round an obstacle
@@ -193,17 +220,40 @@ export function stepCar(c, ctrl, dt, track, hw) {
     }
     c.landed = false;
     if (c.air) {
+      c.airTime += dt;
       c.vy -= GRAVITY * dt;
       c.y += c.vy * dt;
-      if (c.y <= ground) { c.y = ground; c.vy = 0; c.air = false; c.landed = true; }
+      if (c.y <= ground) {
+        c.y = ground; c.vy = 0; c.air = false; c.landed = true;
+        addNitro(c, Math.min(0.25, c.airTime * 0.3)); // a reward for flying
+      }
     } else if (ground < c.y - 0.05 && c.climb > 1) {
       c.air = true; // drove off the end of the ramp
       c.vy = c.climb;
+      c.airTime = 0;
     } else {
       c.climb = Math.max(0, Math.min(12, (ground - c.y) / dt));
       c.y = ground;
     }
     c.rough = rough && !c.air;
+  }
+}
+
+// Slipstream: a car tucked in close behind another one gets pulled along a bit, and its nitro trickles up.
+// Call once a frame with everyone in the race.
+export function slipstream(cars, track, dt) {
+  const n = track.count;
+  for (const c of cars) {
+    let tow = 0;
+    if (c.speed > 15 && !c.air) {
+      for (const o of cars) {
+        if (o === c) continue;
+        const ahead = (o.idx - c.idx + n) % n; // in samples, 2 m each
+        if (ahead >= 2 && ahead <= 11 && Math.abs(o.lateral - c.lateral) < 2.4) tow = 1;
+      }
+    }
+    c.draft += (tow - c.draft) * Math.min(1, dt * (tow ? 2 : 1.5));
+    if (c.draft > 0.5) addNitro(c, 0.07 * dt);
   }
 }
 
@@ -252,7 +302,7 @@ export function resetCar(c, track) {
   const s = track.samples[c.idx];
   c.x = s.x; c.z = s.z; c.h = s.heading;
   c.speed = 0; c.steer = 0; c.lateral = 0;
-  c.y = 0; c.vy = 0; c.air = false; c.climb = 0;
+  c.y = 0; c.vy = 0; c.air = false; c.climb = 0; c.boost = 0;
 }
 
 // Each car is two circles, one over each axle, which fits a car shape much better than one big circle.

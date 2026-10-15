@@ -220,45 +220,102 @@ export function garageHtml(save, tab, hint, photo) {
   </div>`;
 }
 
+// ---------- race HUD ----------
+// The HTML is built once per race. makeHud then only touches text, attributes and classes when a value
+// actually changes (never rebuilding HTML each frame), and every animation is transform / opacity only,
+// so the HUD stays cheap on an iPad.
+const MEDAL = ['', 'gold', 'silver', 'bronze', 'fourth'];
+// speedometer: a 270 degree dial round (100, 100), open at the bottom; the nitro ring sits inside it
+const DIAL = 'M49.1 150.9 A72 72 0 1 1 150.9 150.9';
+const NITRO_RING = 'M64.6 135.4 A50 50 0 1 1 135.4 135.4';
+const TICKS = Array.from({ length: 11 }, (_, i) => {
+  const a = ((135 + i * 27) * Math.PI) / 180, r0 = i % 5 ? 84 : 80, r1 = 90;
+  return `M${(100 + Math.cos(a) * r0).toFixed(1)} ${(100 + Math.sin(a) * r0).toFixed(1)} L${(100 + Math.cos(a) * r1).toFixed(1)} ${(100 + Math.sin(a) * r1).toFixed(1)}`;
+}).join('');
+
+// 83.4 -> "1:23.4"
+export const clock = (t) => {
+  t = Math.max(0, t);
+  const m = Math.floor(t / 60), s = t - m * 60;
+  return `${m}:${s < 10 ? '0' : ''}${s.toFixed(1)}`;
+};
+
 export function hudHtml(showTouch) {
-  return `<div class="hud">
-      <div class="hud-l"><div id="hpos" class="pos"></div><div id="hlap" class="lap"></div></div>
-      <div class="hud-r">
-        <button class="hud-btn" data-action="reset" title="Back on the road">↺</button>
-        <button class="hud-btn" data-action="quit" title="Quit race">✕</button>
+  return `<div class="hud ${showTouch ? 'is-touch' : ''}">
+      <div class="hud-vig" id="hvig"></div>
+      <div class="hud-l">
+        <div class="hud-pos fourth" id="hpos"><b>3</b><span>rd</span><i class="hud-arrow"></i></div>
+        <div class="hud-cards">
+          <div class="hud-card hud-lap" id="hlapc"><small>LAP</small><b id="hlap">1</b><span id="hlaps">/2</span></div>
+          <div class="hud-card hud-time"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#ffd23f" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="13" r="8"></circle><path d="M12 13 L12 9 M10 3 H14"></path></svg><b id="htime">0:00.0</b></div>
+          <div class="hud-card hud-best" id="hbestc"><small>BEST</small><b id="hbest"></b></div>
+        </div>
       </div>
-      <svg id="hmap" class="minimap" viewBox="0 0 100 100"></svg>
-      <div id="hcount" class="count"></div>
-      <div id="hoff" class="offroad">Get back on the road!</div>
+      <div class="hud-r">
+        <button class="hud-btn" data-action="reset" title="Back on the road" aria-label="Back on the road"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12 A8 8 0 1 0 7 5.8"></path><path d="M3 4 V9 H8"></path></svg></button>
+        <button class="hud-btn" data-action="quit" title="Quit race" aria-label="Quit race"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M6 6 L18 18 M18 6 L6 18"></path></svg></button>
+      </div>
+      <div class="hud-map"><svg id="hmap" class="minimap" viewBox="0 0 100 100"></svg></div>
+      <div class="hud-lights" id="hlights"><i></i><i></i><i></i></div>
+      <div class="hud-toast" id="htoast"></div>
+      <div class="hud-banners" id="hban"></div>
+      <div class="hud-off" id="hoff">Get back on the road!</div>
+      <div class="hud-speedo" id="hspeed">
+        <svg viewBox="0 0 200 200" aria-hidden="true">
+          <circle class="sp-bg" cx="100" cy="100" r="96"></circle>
+          <path class="sp-ticks" d="${TICKS}"></path>
+          <path class="sp-track" d="${DIAL}"></path>
+          <path class="sp-fill" id="hsfill" d="${DIAL}" pathLength="100" stroke-dasharray="0 100"></path>
+          <path class="sp-ntrack" d="${NITRO_RING}"></path>
+          <path class="sp-nfill" id="hnfill" d="${NITRO_RING}" pathLength="100" stroke-dasharray="0 100"></path>
+        </svg>
+        <b id="hkmh">0</b><small>km/h</small>
+        <span class="sp-nlabel">NITRO</span>
+      </div>
     </div>
     ${showTouch ? `<div class="touch">
-      <div class="pad left"><button data-key="left">◀</button><button data-key="right">▶</button></div>
-      <div class="pad right"><button data-key="brake" class="brake">BRAKE</button><button data-key="gas" class="gas">GO</button></div>
-    </div>` : `<div class="keys-hint">Arrows / WASD to drive · Space to brake</div>`}`;
+      <div class="pad left"><button data-key="left" aria-label="Steer left">◀</button><button data-key="right" aria-label="Steer right">▶</button></div>
+      <div class="pad right"><button data-key="nitro" class="nitro" aria-label="Nitro boost" style="background:rgba(255,140,26,0.65);font-size:1.15rem">NITRO</button><button data-key="brake" class="brake">BRAKE</button><button data-key="gas" class="gas">GO</button></div>
+    </div>` : `<div class="keys-hint">Arrows / WASD to drive · Space to brake · Shift for NITRO</div>`}`;
 }
 
+// The race calls these as things change. All are cheap to call every frame: they bail out early when
+// nothing is different.
 export function makeHud(root) {
-  const pos = root.querySelector('#hpos'), lap = root.querySelector('#hlap');
-  const count = root.querySelector('#hcount'), off = root.querySelector('#hoff');
-  const mapEl = root.querySelector('#hmap');
-  let last = [];
-  let toMap = null, dots = [];
+  const $ = (id) => root.querySelector('#' + id);
+  const hud = root.querySelector('.hud');
+  const posEl = $('hpos'), posNum = posEl.querySelector('b'), posSuf = posEl.querySelector('span'), arrow = posEl.querySelector('.hud-arrow');
+  const lapCard = $('hlapc'), lapEl = $('hlap'), lapsEl = $('hlaps'), timeEl = $('htime'), bestCard = $('hbestc'), bestEl = $('hbest');
+  const lightsEl = $('hlights'), bulbs = [...lightsEl.querySelectorAll('i')];
+  const bans = $('hban'), toastEl = $('htoast'), off = $('hoff'), vig = $('hvig');
+  const kmhEl = $('hkmh'), sFill = $('hsfill'), nFill = $('hnfill'), mapEl = $('hmap');
+  const last = {};
+  const changed = (key, v) => (last[key] === v ? false : ((last[key] = v), true));
+  const pop = (el, frames, ms = 420) => el.animate?.(frames, { duration: ms, easing: 'cubic-bezier(.2,1.6,.4,1)' });
+  let toMap = null, dots = [], banner = null, toastTimer = 0;
+
   return {
-    // mini map: draws the track outline once, with a dot per car (the player's is bigger and on top)
+    // mini map: draws the track once, then dots() moves a dot per rival and an arrow for the player
     map(track, cars) {
       const xs = track.samples.map((s) => s.x), zs = track.samples.map((s) => s.z);
       const midX = (Math.min(...xs) + Math.max(...xs)) / 2, midZ = (Math.min(...zs) + Math.max(...zs)) / 2;
-      const k = 84 / Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...zs) - Math.min(...zs));
+      const k = 80 / Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...zs) - Math.min(...zs));
       toMap = (x, z) => [(50 + (x - midX) * k).toFixed(1), (50 - (z - midZ) * k).toFixed(1)];
       const d = track.samples.filter((_, i) => i % 3 === 0).map((s, i) => (i ? 'L' : 'M') + toMap(s.x, s.z).join(' ')).join('') + 'Z';
-      const [sx, sy] = toMap(xs[0], zs[0]);
+      const s0 = track.samples[0], [sx, sy] = toMap(s0.x, s0.z), deg = ((s0.heading * 180) / Math.PI).toFixed(1);
       const ramps = (track.jumps ?? []).map((j) => toMap(track.samples[j.idx].x, track.samples[j.idx].z))
         .map(([x, y]) => `<rect class="jump" x="${x - 2.6}" y="${y - 2.6}" width="5.2" height="5.2" rx="1"/>`).join('')
-        + (track.obstacles ?? []).filter((o) => !o.cross).map((o) => toMap(o.x, o.z)).map(([x, y]) => `<circle class="tree" cx="${x}" cy="${y}" r="2"/>`).join('');
-      const order = [...cars].sort((a, b) => a.isPlayer - b.isPlayer);
-      mapEl.innerHTML = `<path class="edge" d="${d}"/><path class="road" d="${d}"/><circle class="start" cx="${sx}" cy="${sy}" r="2.4"/>${ramps}`
-        + order.map((c) => `<circle class="car ${c.isPlayer ? 'me' : ''}" r="${c.isPlayer ? 4.6 : 3.4}" fill="${c.color}"/>`).join('');
-      dots = [...mapEl.querySelectorAll('.car')].map((el, i) => [el, order[i]]);
+        + (track.obstacles ?? []).filter((o) => !o.cross).map((o) => toMap(o.x, o.z)).map(([x, y]) => `<circle class="tree" cx="${x}" cy="${y}" r="1.8"/>`).join('');
+      const rivals = cars.filter((c) => !c.isPlayer), me = cars.find((c) => c.isPlayer);
+      // start / finish line: a little chequered strip across the road, turned to match it
+      mapEl.innerHTML = `<defs><pattern id="hchk" width="2" height="2" patternUnits="userSpaceOnUse"><rect width="2" height="2" fill="#fff"/><rect width="1" height="1" fill="#1b2140"/><rect x="1" y="1" width="1" height="1" fill="#1b2140"/></pattern></defs>
+        <path class="edge" d="${d}"/><path class="road" d="${d}"/><path class="line" d="${d}"/>${ramps}
+        <g transform="translate(${sx} ${sy}) rotate(${deg})"><rect class="start" x="-5" y="-1.5" width="10" height="3" fill="url(#hchk)"/></g>`
+        + rivals.map((c) => `<circle class="car" r="3.2" fill="${c.color}"/>`).join('')
+        + `<g class="me"><path d="M0 -6 L4.6 4.6 L0 2.4 L-4.6 4.6 Z" fill="${me.color}"/></g>`;
+      dots = [...mapEl.querySelectorAll('.car')].map((el, i) => [el, rivals[i]]);
+      this.meEl = mapEl.querySelector('.me');
+      this.me = me;
     },
     dots() {
       for (const [el, c] of dots) {
@@ -266,36 +323,169 @@ export function makeHud(root) {
         el.setAttribute('cx', x);
         el.setAttribute('cy', y);
       }
+      const [x, y] = toMap(this.me.x, this.me.z);
+      this.meEl.setAttribute('transform', `translate(${x} ${y}) rotate(${((this.me.h * 180) / Math.PI).toFixed(0)})`);
     },
-    set(p, l, c, o) {
-      if (p !== last[0]) pos.textContent = p;
-      if (l !== last[1]) lap.textContent = l;
-      if (c !== last[2]) { count.textContent = c; count.classList.toggle('show', !!c); }
-      if (o !== last[3]) off.classList.toggle('show', o);
-      last = [p, l, c, o];
+
+    // n: 1..4. gained: +1 when we just moved up, -1 when we dropped back (pops the badge and flashes an arrow)
+    place(n, gained = 0) {
+      if (!changed('place', n)) return;
+      posNum.textContent = n;
+      posSuf.textContent = ['th', 'st', 'nd', 'rd'][n] || 'th';
+      posEl.className = `hud-pos ${MEDAL[n] ?? 'fourth'}`;
+      if (gained) {
+        pop(posEl, [{ transform: 'scale(1)' }, { transform: `scale(${gained > 0 ? 1.35 : 0.8})` }, { transform: 'scale(1)' }], 500);
+        arrow.className = `hud-arrow ${gained > 0 ? 'up' : 'down'}`;
+        arrow.getAnimations?.().forEach((a) => a.cancel());
+        arrow.animate?.([{ opacity: 0, transform: `translateY(${gained > 0 ? 18 : -18}px) scale(.6)` }, { opacity: 1, transform: 'translateY(0) scale(1.1)', offset: 0.25 }, { opacity: 1, transform: 'translateY(0) scale(1)', offset: 0.8 }, { opacity: 0, transform: `translateY(${gained > 0 ? -14 : 14}px)` }], { duration: 1100, easing: 'ease-out' });
+      }
+    },
+    lap(n, of) {
+      if (!changed('lap', n * 100 + of)) return;
+      lapEl.textContent = n;
+      lapsEl.textContent = '/' + of;
+      lapCard.classList.toggle('final', n === of && of > 1);
+      if (last.lapShown) pop(lapCard, [{ transform: 'scale(1)' }, { transform: 'scale(1.25)' }, { transform: 'scale(1)' }], 500);
+      last.lapShown = true;
+    },
+    timer(t) {
+      const s = clock(t);
+      if (changed('time', s)) timeEl.textContent = s;
+    },
+    best(t) {
+      if (!changed('best', t)) return;
+      bestCard.classList.toggle('show', t > 0);
+      if (t > 0) bestEl.textContent = clock(t);
+    },
+    // a lap was just finished: flash its time (and a star when it beat the best lap)
+    lapDone(n, t, isBest) {
+      this.toast(`Lap ${n}  ${clock(t)}`, isBest && n > 1 ? 'BEST!' : '');
+      pop(timeEl.parentNode, [{ transform: 'scale(1)' }, { transform: 'scale(1.2)' }, { transform: 'scale(1)' }]);
+    },
+    // a smaller message that drops in under the top of the screen for a couple of seconds
+    toast(text, tag = '', ms = 2200) {
+      toastEl.innerHTML = '';
+      toastEl.append(text);
+      if (tag) { const b = document.createElement('b'); b.textContent = tag; toastEl.append(b); }
+      toastEl.classList.remove('show');
+      void toastEl.offsetWidth; // restart the drop-in animation
+      toastEl.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => toastEl.classList.remove('show'), ms);
+    },
+
+    // countdown lights: n red lamps lit (0..3), 'go' = all green, null = slide away
+    lights(n) {
+      if (!changed('lights', n)) return;
+      lightsEl.classList.toggle('show', n !== null);
+      lightsEl.classList.toggle('go', n === 'go');
+      bulbs.forEach((b, i) => {
+        const on = n === 'go' || (typeof n === 'number' && i < n);
+        if (on && !b.classList.contains('on')) pop(b, [{ transform: 'scale(.6)' }, { transform: 'scale(1.15)' }, { transform: 'scale(1)' }], 300);
+        b.classList.toggle('on', on);
+      });
+    },
+
+    // Big slanted words across the middle of the screen: 'GO!', 'BOOST!', 'NICE JUMP!', 'WRONG WAY'...
+    // style: 'gold' (default), 'green', 'blue', 'red', 'pink' or 'win'. opts: { hold: seconds on screen,
+    // sub: small line under it, slide: true to whoosh across instead of popping in }.
+    // Calling it again with the same text while it shows just keeps it up (safe to call every frame).
+    banner(text, style = 'gold', opts = {}) {
+      const hold = opts.hold ?? 1.1;
+      if (banner && banner.text === text && !banner.leaving) {
+        clearTimeout(banner.timer);
+        banner.timer = setTimeout(leave, hold * 1000, banner);
+        return;
+      }
+      if (banner) leave(banner, true);
+      const el = document.createElement('div');
+      el.className = `hud-banner ${style} ${opts.slide ? 'slide' : 'pop'}`;
+      const word = document.createElement('b');
+      word.textContent = text;
+      word.dataset.text = text;
+      el.append(word);
+      if (opts.sub) { const s = document.createElement('span'); s.textContent = opts.sub; el.append(s); }
+      bans.append(el);
+      banner = { el, text };
+      banner.timer = setTimeout(leave, hold * 1000, banner);
+    },
+    // hides a banner that was shown with a long hold (e.g. 'WRONG WAY' once you turn round)
+    clearBanner(text) {
+      if (banner && (!text || banner.text === text)) leave(banner);
+    },
+
+    speed(kmh, frac) {
+      if (!changed('kmh', Math.round(kmh))) return;
+      kmhEl.textContent = Math.round(kmh);
+      sFill.setAttribute('stroke-dasharray', `${(Math.max(0, Math.min(1, frac)) * 100).toFixed(1)} 100`);
+      sFill.style.opacity = frac > 0.01 ? 1 : 0; // a zero-length round-capped line would still show a dot
+    },
+    // 0..1. The nitro ring only appears once this has been called.
+    nitro(v) {
+      v = Math.max(0, Math.min(1, v || 0));
+      if (!changed('nitro', Math.round(v * 200))) return;
+      hud.classList.add('has-nitro');
+      nFill.setAttribute('stroke-dasharray', `${(v * 100).toFixed(1)} 100`);
+      nFill.style.opacity = v > 0.01 ? 1 : 0;
+      hud.classList.toggle('nitro-full', v >= 0.995);
+    },
+    // edges of the screen darken a little at top speed and glow blue while boosting
+    fast(frac, boosting) {
+      const o = Math.round(Math.max(0, Math.min(1, (frac - 0.6) / 0.4)) * 20) / 20;
+      if (changed('vig', o)) vig.style.opacity = boosting ? 1 : o;
+      if (changed('boost', !!boosting)) { hud.classList.toggle('boosting', !!boosting); vig.style.opacity = boosting ? 1 : o; }
+    },
+    offroad(on) {
+      if (changed('off', !!on)) off.classList.toggle('show', !!on);
+    },
+    // the player crossed the line for the last time
+    finish(place) {
+      if (!changed('finish', place)) return;
+      hud.classList.add('done');
+      this.banner(place === 1 ? 'YOU WIN!' : 'FINISH!', place === 1 ? 'win' : 'gold', { hold: 10, sub: `${place}${['th', 'st', 'nd', 'rd'][place] || 'th'} place` });
     },
   };
+
+  // slide or fade a banner away, then drop its element
+  function leave(b, now) {
+    if (!b || b.leaving) return;
+    b.leaving = true;
+    clearTimeout(b.timer);
+    if (banner === b) banner = null;
+    b.el.classList.add(now ? 'gone' : 'out');
+    setTimeout(() => b.el.remove(), now ? 200 : 450);
+  }
 }
 
 // After a race. Same board as the home screen: the result and any new prizes on the left; the car,
 // the rivals and the buttons on the right. result: { place, unlocked, levelChange }.
 export function resultsHtml(result, save, hint, photo) {
-  const { place, unlocked, levelChange } = result, won = place === 1;
+  const { place, unlocked, levelChange, times } = result, won = place === 1;
   const sub = won ? 'You won!' : place === 2 ? 'So close! Try again!' : 'Keep practicing. You got this!';
+  const medal = MEDAL[place] ?? 'fourth';
+  // podium: 2nd, 1st, 3rd, then a low step for 4th, with the player's car colour standing on theirs
+  const steps = [2, 1, 3, 4].map((n) => `<div class="r-step s${n} ${n === place ? 'me' : ''}">${n === place ? `<i class="r-you" style="--car:${COLORS[save.car.color]?.hex ?? '#ffd23f'}"><span>YOU</span></i>` : ''}<b>${n}</b></div>`).join('');
+  const chips = times?.time > 0 ? `<div class="r-times"><span>${svg(24, '<circle cx="12" cy="13" r="8"></circle><path d="M12 13 L12 9 M10 3 H14"></path>', 'fill="none" stroke="#ffd23f" stroke-width="2.6" stroke-linecap="round"')}${clock(times.time)}</span>${times.best > 0 ? `<span><small>BEST LAP</small>${clock(times.best)}</span>` : ''}</div>` : '';
+  // a shower of paper confetti over the board after a win (plays once)
+  const confetti = won ? `<div class="r-confetti" aria-hidden="true">${Array.from({ length: 36 }, (_, i) =>
+    `<i style="--x:${((i * 37) % 100).toFixed(0)}%;--d:${((i * 7) % 11) / 10}s;--r:${(i * 53) % 360}deg;--c:${['#ffd23f', '#f05fa6', '#4fd2ff', '#2fbf71', '#f28c28', '#ffffff'][i % 6]}"></i>`).join('')}</div>` : '';
   const news = unlocked.length ? `<div class="r-new g-card">
       <div class="r-new-title">${svg(30, ICON.gift)}<span>New prize${unlocked.length === 1 ? '' : 's'}!</span></div>
-      <div class="r-new-row">${unlocked.map(([, kind, id]) => `<div class="r-new-tile"><div class="h-prize-pic">${prizePic(kind, id, save, photo)}</div><span>${itemName(kind, id)}</span><small>${KIND_LABEL[kind]}</small></div>`).join('')}</div>
+      <div class="r-new-row">${unlocked.map(([, kind, id], i) => `<div class="r-new-tile" style="--i:${i}"><div class="h-prize-pic">${prizePic(kind, id, save, photo)}</div><span>${itemName(kind, id)}</span><small>${KIND_LABEL[kind]}</small></div>`).join('')}</div>
     </div>` : '';
-  return `<div class="home results">
+  return `<div class="home results">${confetti}
     <div class="h-top">
       <div class="h-title"><span>Ezra's</span><b>Grand Prix</b></div>
       <div class="h-top-right"><div class="g-wins h-wins g-card" role="img" aria-label="${save.wins} wins">${svg(44, ICON.trophy, GOLD)}<span>${save.wins}</span></div></div>
     </div>
     <div class="h-main">
       <div class="h-left">
-        <div class="r-result g-card ${won ? 'won' : ''}">
-          <div class="r-medal">${won ? svg(96, ICON.trophy, GOLD) : `<b>${place}</b>`}</div>
-          <div class="r-words"><div class="r-place">${ordinal(place)} place${won ? '!' : ''}</div><div class="r-sub">${sub}</div></div>
+        <div class="r-result g-card ${won ? 'won' : ''} ${unlocked.length ? 'compact' : ''}">
+          <div class="r-head">
+            <div class="r-medal ${medal}">${won ? svg(96, ICON.trophy, 'fill="#1f2a4f" stroke="#1f2a4f" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"') : `<b>${place}</b>`}</div>
+            <div class="r-words"><div class="r-place">${ordinal(place)} place${won ? '!' : ''}</div><div class="r-sub">${sub}</div>${chips}</div>
+          </div>
+          <div class="r-podium">${steps}</div>
         </div>
         ${news}
         ${prizesCard(save, hint, photo)}

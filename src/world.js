@@ -14,6 +14,7 @@ import PROPS from './props.json'; // cones, barriers, diggers... made by tools/b
 import { RAMP_LENGTH, RAMP_HEIGHT, GAP_LENGTH } from './physics.js';
 import { MACHINES } from './data.js';
 import { addAnimals } from './animals.js';
+import { buildVenue } from './venue.js';
 import '@babylonjs/core/Meshes/instancedMesh';
 
 // Colours for the parts of the scenery models (the kit's own colours are teal and orange).
@@ -43,12 +44,19 @@ function hills(scene, rand, radius, low, high, layer, landAt) {
   for (let i = 0; i <= N; i++) {
     const a = (i / N) * Math.PI * 2;
     const x = Math.sin(a) * radius, z = Math.cos(a) * radius;
-    const land = landAt(x, z);
+    // blend the lands on either side, so there is no hard seam where one meets the next
+    let mesa = 0;
+    const top = new Color3(0, 0, 0), K = 8;
+    for (let k = -K; k <= K; k++) {
+      const b = a + k * 0.02, land = landAt(Math.sin(b) * radius, Math.cos(b) * radius);
+      mesa += land.mesas ? 1 / (2 * K + 1) : 0;
+      top.addInPlace(Color3.FromHexString((land.hills ?? HILL_COLORS)[layer]).scale(1 / (2 * K + 1)));
+    }
     let h = 0;
     for (const [n, phase, amp] of waves) h += Math.sin(a * n + phase) * amp;
     let t = Math.max(0, Math.min(1, 0.5 + h * 0.3));
-    if (land.mesas) t = t > 0.58 ? 0.95 : t > 0.42 ? 0.5 : 0.1; // steps instead of slopes
-    const top = Color3.FromHexString((land.hills ?? HILL_COLORS)[layer]);
+    // desert: low flat-topped steps (the big 3D buttes nearer in do the showing off)
+    if (mesa) t = t * (1 - mesa) + (t > 0.58 ? 0.45 : t > 0.42 ? 0.28 : 0.1) * mesa;
     positions.push(x, -2, z, x, low + (high - low) * t, z);
     colors.push(base.r, base.g, base.b, 1, top.r, top.g, top.b, 1);
     if (i < N) indices.push(i * 2, i * 2 + 1, i * 2 + 2, i * 2 + 1, i * 2 + 3, i * 2 + 2);
@@ -643,21 +651,62 @@ export function buildWorld(scene, track, def, shadows) {
   const sea = def.ocean; // { x: where the beach starts, side: -1 west / +1 east }
   const inSea = (x, pad = 0) => sea && (x - sea.x) * sea.side > -pad;
 
-  for (const land of lands) {
-    const [x0, x1, z0, z1] = land.area, wide = x1 - x0, deep = z1 - z0;
-    const ground = MeshBuilder.CreateGround('ground', { width: wide, height: deep }, scene);
-    ground.position.set((x0 + x1) / 2, 0, (z0 + z1) / 2);
+  const groundMat = (land, uScale, vScale) => {
     const gm = mat(scene, 'ground', '#ffffff', 1);
     const surface = land.surface ?? 'grass';
-    if (surface !== 'snow') gm.albedoTexture = tiled(scene, surface === 'grass' ? 'grass_diff.jpg' : 'sand_diff.jpg', wide / GRASS_TILE, deep / GRASS_TILE);
+    if (surface !== 'snow') gm.albedoTexture = tiled(scene, surface === 'grass' ? 'grass_diff.jpg' : 'sand_diff.jpg', uScale, vScale);
     // grass and sand keep their own shade by tinting the photo; snow is plain blue-white
     const tint = Color3.FromHexString(land.ground).toLinearSpace();
     gm.albedoColor = surface === 'snow' ? new Color3(0.8, 0.87, 0.97)
       : surface === 'sand' ? Color3.Lerp(Color3.White(), tint, 0.55).scale(1.25)
       : Color3.Lerp(Color3.White(), tint, land.groundMix ?? 0.3).scale(0.8); // groundMix: how strongly the grass takes the colour
     gm.specularIntensity = 0.3;
-    ground.material = gm;
+    return gm;
+  };
+  for (const land of lands) {
+    const [x0, x1, z0, z1] = land.area, wide = x1 - x0, deep = z1 - z0;
+    const ground = MeshBuilder.CreateGround('ground', { width: wide, height: deep }, scene);
+    ground.position.set((x0 + x1) / 2, 0, (z0 + z1) / 2);
+    ground.material = groundMat(land, wide / GRASS_TILE, deep / GRASS_TILE);
     ground.receiveShadows = true;
+  }
+  // Where two lands meet, fade one ground into the other across a wavy strip, instead of a hard straight edge.
+  // Sand spreads over snow and grass, snow over grass.
+  const RANK = { grass: 0, snow: 1, sand: 2 };
+  for (const A of lands) {
+    const [x0, x1, z0, z1] = A.area, WIDE = 30, COLS = 6;
+    // each edge: the point at u (0..1) along it, and the direction out of A
+    const edges = [[(u) => [x0, z0 + (z1 - z0) * u], [-1, 0]], [(u) => [x1, z0 + (z1 - z0) * u], [1, 0]], [(u) => [x0 + (x1 - x0) * u, z0], [0, -1]], [(u) => [x0 + (x1 - x0) * u, z1], [0, 1]]];
+    for (const [edge, [ox, oz]] of edges) {
+      const positions = [], colors = [], uvs = [], indices = [];
+      const rows = Math.ceil((ox ? z1 - z0 : x1 - x0) / 4);
+      let any = false;
+      for (let r = 0; r <= rows; r++) {
+        const [ex, ez] = edge(r / rows), other = landAt(ex + ox * 2, ez + oz * 2);
+        const show = Math.abs(ex) < 600 && Math.abs(ez) < 600 && other !== A && RANK[A.surface ?? 'grass'] > RANK[other.surface ?? 'grass'];
+        const along = ox ? ez : ex, wobble = 0.35 * Math.sin(along * 0.045) + 0.2 * Math.sin(along * 0.13 + 1.7);
+        any ||= show;
+        for (let c = 0; c <= COLS; c++) {
+          const d = (c / COLS) * WIDE, x = ex + ox * (d - 3), z = ez + oz * (d - 3);
+          positions.push(x, 0.012, z);
+          uvs.push(x / GRASS_TILE, z / GRASS_TILE);
+          colors.push(1, 1, 1, show && c < COLS ? Math.max(0, Math.min(1, 1.15 - (d / WIDE) * 1.6 + wobble)) : 0);
+          if (r < rows && c < COLS) { const i = r * (COLS + 1) + c; indices.push(i, i + 1, i + COLS + 1, i + 1, i + COLS + 2, i + COLS + 1); }
+        }
+      }
+      if (!any) continue;
+      const strip = new Mesh('landEdge', scene), vd = new VertexData();
+      Object.assign(vd, { positions, colors, uvs, indices });
+      vd.normals = positions.map((_, i) => (i % 3 === 1 ? 1 : 0)); // straight up, whichever way the edge runs
+      vd.applyToMesh(strip);
+      const sm = groundMat(A, 1, 1);
+      sm.transparencyMode = 2; // alpha blend, using the fade in the vertex colours
+      sm.backFaceCulling = false;
+      strip.hasVertexAlpha = true;
+      strip.material = sm;
+      strip.receiveShadows = true;
+      strip.isPickable = false;
+    }
   }
 
   // Seaside: a strip of beach, then water out to the horizon
@@ -743,25 +792,18 @@ export function buildWorld(scene, track, def, shadows) {
   sqB.material = mat(scene, 'checkB', '#111111', 0.7);
   const s0 = samples[0];
   const wsq = [], bsq = [];
-  const cols = Math.floor(def.width);
+  const cols = Math.round(def.width / 0.8), SQ = def.width / cols; // three rows of squares right across the road
   for (let c = 0; c < cols; c++) {
-    for (let r = 0; r < 2; r++) {
-      const lat = -hw + 0.5 + c, fwd = r - 0.5;
+    for (let r = 0; r < 3; r++) {
+      const lat = -hw + SQ * (c + 0.5), fwd = (r - 1) * SQ;
       const x = s0.x + s0.rx * lat + s0.tx * fwd, z = s0.z + s0.rz * lat + s0.tz * fwd;
-      ((c + r) % 2 ? bsq : wsq).push([x, 0.04, z, s0.heading]);
+      ((c + r) % 2 ? bsq : wsq).push([x, 0.04, z, s0.heading, SQ, 1, SQ]);
     }
   }
+  for (const fwd of [-1.5 * SQ - 0.25, 1.5 * SQ + 0.25]) wsq.push([s0.x + s0.tx * fwd, 0.04, s0.z + s0.tz * fwd, s0.heading, def.width, 1, 0.3]);
   place(sq, wsq);
   place(sqB, bsq);
-
-  // Start gantry
-  const post = MeshBuilder.CreateBox('post', { width: 0.5, height: 6, depth: 0.5 }, scene);
-  post.material = mat(scene, 'gantry', '#2b2f38', 0.4, 0.8);
-  place(post, [-1, 1].map((side) => [s0.x + s0.rx * side * (hw + 2), 3, s0.z + s0.rz * side * (hw + 2), s0.heading]));
-  const banner = MeshBuilder.CreateBox('banner', { width: def.width + 4.5, height: 1.4, depth: 0.4 }, scene);
-  banner.material = mat(scene, 'banner', '#ffcc00', 0.5);
-  banner.position.set(s0.x, 6, s0.z);
-  banner.rotation.y = s0.heading;
+  // (the start gantry, grandstands and the rest of the race-day dressing are in venue.js)
 
   // Lake in the middle of the loop: a sandy shore with still water on top that mirrors the sky
   const lake = def.lake ? lakeOutline(track, hw) : null;
@@ -810,8 +852,9 @@ export function buildWorld(scene, track, def, shadows) {
     const nearJump = (i) => (track.jumps ?? []).some((j) => near(i, j.idx, 45));
     const nearMover = (i) => movers.some((o) => near(i, o.idx, 5)); // where a machine drives across
     // parked machines and stacks of crates beside the road
-    for (let n = 0; n < 14; n++) {
-      const i = Math.floor(((n + siteRand()) / 14) * count), s = samples[i];
+    const parked = def.site.parked ?? 14;
+    for (let n = 0; n < parked; n++) {
+      const i = Math.floor(((n + siteRand()) / parked) * count), s = samples[i];
       const off = (n % 2 ? 1 : -1) * (hw + 11 + siteRand() * 12), x = s.x + s.rx * off, z = s.z + s.rz * off;
       const name = Object.keys(MACHINES)[n % 4];
       if (nearMover(i)) continue;
@@ -841,6 +884,16 @@ export function buildWorld(scene, track, def, shadows) {
     }
     built.push([samples[o.idx].x, samples[o.idx].z, hw + 12]); // keep its path clear of trees and rocks
   }
+  // Race-day dressing: gantry, grandstands, fans, flags, boards, tyre walls... (see venue.js)
+  const roadGap = (x, z) => {
+    let near = Infinity;
+    for (let i = 0; i < count; i += 2) near = Math.min(near, (samples[i].x - x) ** 2 + (samples[i].z - z) ** 2);
+    return Math.sqrt(near) - hw;
+  };
+  const axolotls = lands.filter((l) => l.axolotl).map((l) => [l.axolotl.x, l.axolotl.z, 6 * (l.axolotl.size ?? 2)]);
+  const blocked = (x, z, r = 0) => built.some(([bx, bz, br]) => (x - bx) ** 2 + (z - bz) ** 2 < (br + r) ** 2)
+    || axolotls.some(([bx, bz, br]) => Math.hypot(x - bx, z - bz) < br + r) || lake?.covers(x, z, r + 6) || inSea(x, r + 6);
+  const venue = buildVenue(scene, track, def, shadows, { roadGap, built, blocked, props, landAt });
   props.build();
   movingMachines(scene, movers, track, props.material, shadows);
   roadItems(scene, (track.obstacles ?? []).filter((o) => !o.cross && o.kind !== 'tree'), shadows);
@@ -872,11 +925,6 @@ export function buildWorld(scene, track, def, shadows) {
 
   // Trees, bushes and rocks scattered away from the road
   const rand = rng(1234);
-  const roadGap = (x, z) => {
-    let near = Infinity;
-    for (let i = 0; i < count; i += 3) near = Math.min(near, Math.hypot(samples[i].x - x, samples[i].z - z));
-    return near - hw;
-  };
   const clearings = [...built, ...lands.filter((l) => l.axolotl).map((l) => [l.axolotl.x, l.axolotl.z, 6 * (l.axolotl.size ?? 2)])];
   lands.forEach((land, k) => {
     // the part of this land that is close enough to the track to be worth planting
@@ -944,7 +992,6 @@ export function buildWorld(scene, track, def, shadows) {
 
     if (land.axolotl) axolotl(scene, land.axolotl, shadows);
   });
-  for (const m of [post, banner]) shadows.addShadowCaster(m, false);
 
   // Signs where the road crosses from one named land into another
   samples.forEach((s, i) => {
@@ -956,4 +1003,5 @@ export function buildWorld(scene, track, def, shadows) {
   hills(scene, rand, 480, 12, 55, 1, landAt);
 
   for (const m of scene.materials) if (m.name !== 'lava') m.freeze();
+  return venue; // { update(raceTime) }: start lights, hopping fans, flags, the blimp...
 }

@@ -1,5 +1,6 @@
 // Opponent driving: chase a point a little way down the road, slow down for bends.
 import { wrapAngle } from './trackmath.js';
+import { BOOST_MAX, DRAFT_MAX } from './physics.js';
 
 export const MAX_LEVEL = 9; // ten levels, 0 to 9: one for each bar on the home screen
 
@@ -13,8 +14,8 @@ export function difficulty(level) {
     skills: [0.86, 0.9, 0.94].map((s) => s + 0.11 * t), // share of top speed each opponent aims for
     maxScale: 1.01 + 0.08 * t, // how far past the normal top speed they may go when chasing
     caution: 0.39 - 0.3 * t, // how much they slow for bends
-    easeOff: 0.16 - 0.115 * t, // how much they wait for the player when ahead
-    catchUp: 0.06 + 0.06 * t, // how hard they push when behind
+    easeOff: 0.2 - 0.155 * t, // how much they wait for the player when ahead
+    catchUp: 0.08 + 0.05 * t, // how hard they push when behind (keeps them in sight, so there is always someone to pass)
     line: 0.1 + 0.9 * t, // 0 = wander around the road, 1 = cut every corner on the inside
   };
 }
@@ -38,6 +39,13 @@ export function aiControls(c, track, hw, dt, rubber = 1, cars = []) {
   const apex = Math.max(-1, Math.min(1, turn * 3)) * hw * 0.6;
   const hug = ai.line * Math.min(1, Math.abs(turn) * 4);
   c.laneTarget = (c.laneWander ?? 0) * (1 - hug) + apex * hug;
+  // line up for a boost pad coming up (not every time, so they do not all queue for it)
+  for (const p of track.pads ?? []) {
+    const ahead = (p.idx - c.idx + count) % count;
+    if (ahead > 45 || ahead < 2) continue;
+    if (c.padFor !== p) { c.padFor = p; c.padWant = Math.random() < 0.35 + 0.4 * ai.line; } // better drivers go for them more
+    if (c.padWant) c.laneTarget = p.lateral;
+  }
   c.lane = (c.lane ?? 0) + ((c.laneTarget ?? 0) - (c.lane ?? 0)) * Math.min(1, dt * 0.8);
 
   // pull out to pass a car that is just ahead in the same lane, instead of driving into the back of it
@@ -82,13 +90,21 @@ export function aiControls(c, track, hw, dt, rubber = 1, cars = []) {
   // bend is how far the road turns over 30 m, so 30 / bend is how tight it is; gentle bends are not affected.
   const reach = (30 / Math.max(bend, 0.01)) * c.stats.turn;
   const cornering = reach / (1 + (0.35 * reach) / c.stats.max);
-  const target = Math.min(cornering, c.stats.max * c.skill * rubber * (1 - Math.min(0.5, bend * ai.caution)));
+  // boosts and slipstream raise top speed for everyone, so the drivers aim higher too
+  const lift = (c.boost > 0 ? BOOST_MAX : 1) * (1 + DRAFT_MAX * (c.draft ?? 0));
+  const target = Math.min(cornering, c.stats.max * c.skill * rubber * lift * (1 - Math.min(0.5, bend * ai.caution)));
 
-  return { steer, throttle: c.speed < target ? 1 : 0, brake: c.speed > target + 4 ? 1 : 0 };
+  // nitro: on a straight, when trailing the player (rubber > 1) or when the meter is full anyway
+  const nitro = (c.nitro ?? 0) > 0.4 && bend < 0.15 && (rubber > 1.02 || c.nitro >= 1) ? 1 : 0;
+
+  return { steer, throttle: c.speed < target ? 1 : 0, brake: c.speed > target + 4 ? 1 : 0, nitro };
 }
 
-// Keeps races close: opponents ease off when far ahead of the player, push a bit when behind.
+// Keeps races close: opponents ease off when ahead of the player, push a bit when behind. Close by
+// (within about 15 m) nobody is helped, so a real side-by-side fight can happen; past that it ramps up
+// quickly, so the pack stays in sight and there is always someone to chase or pass.
+const NEAR = 7; // track samples, 2 m each
 export function rubberBand(aiProgress, playerProgress, ai = EASY) {
   const gap = playerProgress - aiProgress; // + means AI is behind
-  return gap > 0 ? 1 + Math.min(ai.catchUp, gap / 400) : 1 - Math.min(ai.easeOff, -gap / 250);
+  return gap > NEAR ? 1 + Math.min(ai.catchUp, (gap - NEAR) / 140) : gap < -NEAR ? 1 - Math.min(ai.easeOff, (-gap - NEAR) / 110) : 1;
 }

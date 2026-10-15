@@ -37,6 +37,9 @@ export const BODIES = {
 
 // Control points (x, z) for closed Catmull-Rom loops. Width is road width in meters.
 // scenery lists which models from src/scenery.json get scattered around (repeat a name to see more of it).
+// dress: the race-day dressing built in venue.js. style: speedway / woods / site / jungle / trip (colours of
+// the stands, tyre walls or barriers on the bends...). stands: how many grandstands by the start.
+// far: what fills the horizon (trees, pines, city, jungle, snow, none). The rest are extras for that track.
 function ellipse(rx, rz, n) {
   const pts = [];
   for (let i = 0; i < n; i++) {
@@ -52,6 +55,11 @@ export const TRACKS = {
     width: 16,
     ground: '#7cc464',
     points: ellipse(130, 70, 14),
+    balloons: 3,
+    dress: { style: 'speedway', stands: 2, pits: true, blimp: true, ferris: [-45, -5], far: 'city' },
+    // boost pads: [how far round the lap 0..1, meters left(-)/right(+) of the middle]. Tracks without
+    // boosts (or stars) get them placed automatically on the straights and before the jumps (see pickups.js).
+    boosts: [[0.08, -3], [0.45, 3], [0.55, -3]],
     scenery: {
       trees: ['tree_oak', 'tree_detailed', 'tree_default', 'tree_fat', 'tree_tall', 'tree_plateau'],
       small: ['plant_bushLarge', 'plant_bushDetailed', 'stone_largeB'],
@@ -63,6 +71,7 @@ export const TRACKS = {
     ground: '#4f9c4b',
     obstacles: 8, // trees growing in the road that you can crash into
     crossers: [['deer', 0.19], ['rabbit', 0.295], ['stag', 0.51], ['fox', 0.73], ['deer', 0.83]], // animals walking across the road: [kind, how far round the lap]
+    dress: { style: 'woods', stands: 1, bridge: 0.62, cabin: true, toadstools: 45, logs: 30, woodFence: true, far: 'pines' },
     animals: { deer: 7, stag: 4, bear: 3, fox: 6, rabbit: 12, birds: 3 }, // birds = flocks overhead
     scenery: {
       treeCount: 950, // a proper forest
@@ -95,7 +104,9 @@ export const TRACKS = {
     site: {
       cranes: [[-95, -18], [128, -22]],
       frames: [[15, -40, 4], [-160, 8, 2], [72, -8, 3]],
+      parked: 24, // machines parked beside the road
     },
+    dress: { style: 'site', stands: 1, site: true, far: 'city' },
     colors: { rock: '#8a6a45', stone: '#9c7b52', bush: '#6f8f4a' }, // rocks become heaps of earth
     scenery: {
       treeCount: 70,
@@ -119,12 +130,15 @@ export const TRACKS = {
       [-98, 20], [-116, -32], [-165, -48], [-215, -45], [-235, -95],
     ],
     ocean: { x: -288, side: -1 }, // the beach starts here and the sea lies to the west of it
+    // buttes: big layered rock towers out in the New Mexico desert: [x, z, radius, height, seed]
+    dress: { style: 'trip', stands: 2, buttes: [[335, -55, 34, 48, 1], [372, 118, 48, 64, 2], [318, 240, 30, 40, 3], [430, -190, 52, 74, 4], [175, 300, 40, 46, 5], [130, -310, 44, 56, 6], [470, 40, 40, 60, 7], [265, -265, 30, 36, 8], [520, 230, 60, 85, 9], [80, 420, 55, 70, 10]] },
     lands: [
       {
         area: [-700, 0, -700, 0],
         name: 'Rhode Island',
         motto: 'The Ocean State',
         ground: '#7cc464',
+        far: 'trees',
         inRoad: { kind: 'lemonade', count: 3, r: 1.1 }, // cups of Del's frozen lemonade
         scenery: {
           trees: ['tree_oak', 'tree_detailed', 'tree_default', 'tree_fat', 'tree_plateau', 'tree_pineDefaultA'],
@@ -139,6 +153,7 @@ export const TRACKS = {
         ground: '#eef4fb',
         hills: ['#c3d1e0', '#e2eaf2'],
         snowmen: 8,
+        far: 'snow',
         colors: { leaf: '#dfe8f0', pine: '#e3ecf3', bark: '#4b3a30', bush: '#e6eef5', rock: '#98a2ad', stone: '#eef3f8' },
         scenery: {
           trees: ['tree_pineRoundC', 'tree_pineTallA_detailed', 'tree_pineDefaultA', 'tree_pineDefaultA', 'tree_default'],
@@ -152,6 +167,7 @@ export const TRACKS = {
         surface: 'sand',
         ground: '#e2a468',
         mesas: true, // flat-topped hills on the horizon
+        far: 'none', // the buttes in dress fill this horizon
         hills: ['#b58f84', '#c4835c'],
         balloons: 8,
         inRoad: { kind: 'chile', count: 5, r: 0.9 }, // green chiles
@@ -182,11 +198,13 @@ export const TRACKS = {
     animalsAt: [{ kind: 'longneck', x: 15, z: 5, yaw: 2.4 }], // wading in the lake
     crossers: [['stego', 0.22], ['trex', 0.32], ['parasaur', 0.42], ['threehorn', 0.6], ['raptor', 0.69], ['raptor', 0.9]], // dinosaurs walking across the road (keep them off the jumps)
     colors: { rock: '#6d625c', stone: '#8a7f78' },
+    dress: { style: 'jungle', stands: 1, arches: [0.13, 0.57], nests: 4, far: 'jungle' },
     scenery: {
       treeCount: 340,
       treeSize: [8, 16],
+      smallCount: 560, // thick jungle ferns
       trees: ['tree_palmTall', 'tree_palmDetailedTall', 'tree_palmBend', 'tree_palmShort', 'tree_palmDetailedShort', 'tree_palmDetailedTall'],
-      small: ['rock_largeA', 'rock_tallC', 'plant_flatTall', 'plant_bushLarge', 'plant_bushDetailed', 'rock_tallA'],
+      small: ['rock_largeA', 'plant_flatTall', 'plant_flatTall', 'plant_bushLarge', 'plant_bushDetailed', 'plant_flatTall', 'plant_bushDetailed', 'rock_tallA'],
     },
     points: [
       [-150, 0], [-120, -70], [-40, -100], [40, -70], [110, -100], [160, -40],

@@ -19,6 +19,9 @@ function paintMat(scene, hex) {
   return m;
 }
 
+const TAIL_OFF = Color3.FromHexString('#ff2a2a').toLinearSpace().scale(1.2);
+const TAIL_ON = new Color3(1, 0.1, 0.08).scale(3); // a hot, bright red
+
 function lampMat(scene, hex, glow) {
   const m = mat(scene, hex, 0.2);
   m.emissiveColor = Color3.FromHexString(hex).toLinearSpace().scale(glow);
@@ -64,12 +67,15 @@ export function buildCar(scene, cfg) {
     for (const [kind, g] of Object.entries(groups)) part(scene, kind, g, mats[kind], parent);
   };
 
-  group(model.body, scaled);
+  // the body sits on its own node so it can lean and dip on its springs while the wheels stay planted
+  const shell = new TransformNode('shell', scene);
+  shell.parent = scaled;
+  group(model.body, shell);
 
   const spoiler = MODELS.spoilers[cfg.spoiler];
   if (spoiler) {
     const mount = new TransformNode('spoiler', scene);
-    mount.parent = scaled;
+    mount.parent = shell;
     mount.position.fromArray(model.spoilerAt);
     group(spoiler, mount);
   }
@@ -101,10 +107,18 @@ export function buildCar(scene, cfg) {
   contact.material = cm;
   contact.parent = root;
 
-  let spin = 0, tilt = 0;
+  // body springs: roll (leaning out of corners), pitch (nose dips braking, squats accelerating), heave (bounce)
+  const spring = { roll: 0, rollV: 0, pitch: 0, pitchV: 0, heave: 0, heaveV: 0 };
+  const settle = (key, want, dt, stiff = 140, damp = 13) => {
+    const v = key + 'V';
+    spring[v] += ((want - spring[key]) * stiff - spring[v] * damp) * dt;
+    spring[key] += spring[v] * dt;
+  };
+  let spin = 0, tilt = 0, lastSpeed = 0, braking = false;
   return {
     root,
     stats: body.stats,
+    size: model.size.map((v) => v * body.scale), // width, height, length in meters
     // height above the road and nose up/down (ramps and jumps); the dark patch stays on the ground
     lift(y, slope, dt) {
       tilt += (Math.atan(slope) - tilt) * Math.min(1, dt * 10);
@@ -119,6 +133,27 @@ export function buildCar(scene, cfg) {
         w.pivot.rotation.x = spin;
         w.pivot.rotation.y = w.front ? steer * 0.45 : 0;
       }
+      if (dt > 0) {
+        const accel = Math.max(-60, Math.min(60, (speed - lastSpeed) / dt)), fast = Math.min(1, Math.abs(speed) / 30);
+        lastSpeed = speed;
+        settle('roll', steer * fast * 0.075 * Math.sign(speed || 1), dt);
+        settle('pitch', Math.max(-0.035, Math.min(0.05, -accel * 0.0013)), dt);
+        settle('heave', 0, dt, 180, 10);
+        shell.rotation.z = spring.roll;
+        shell.rotation.x = spring.pitch;
+        shell.position.y = spring.heave / body.scale;
+      }
+    },
+    // brake lights glow while braking
+    brake(on) {
+      if (on === braking) return;
+      braking = on;
+      mats.tail.emissiveColor = on ? TAIL_ON : TAIL_OFF;
+    },
+    // a jolt to the springs, e.g. landing a jump (amount about 0..1)
+    bump(amount) {
+      spring.heaveV -= amount * 1.6;
+      spring.pitchV += amount * 0.5;
     },
     dispose() {
       root.dispose(false, true);
