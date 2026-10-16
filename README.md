@@ -1,6 +1,9 @@
 # Ezra's Grand Prix
 
-A small racing game for the browser: Babylon.js + Vite, no accounts, no purchases.
+A small racing game for the browser: Babylon.js + Vite, no accounts, no purchases, no in app currencies etc.
+First design was mostly claude with some input from me - all subsequent design decisions and feature
+requests will go through my nephew Ezra (6 y/o ftp racing game enthusiast).
+
 Race 3 AI cars for 2 laps; every win unlocks something (paint, wheels, spoilers, cars, tracks).
 Progress is saved in the browser's localStorage on the device.
 
