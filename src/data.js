@@ -31,12 +31,15 @@ export const BODIES = {
   racer: { name: 'Racer', scale: 1.55, stats: { max: 40, accel: 24, brake: 40, turn: 2.3, offroad: 0.5 } },
   muscle: { name: 'Rally', scale: 1.5, stats: { max: 45, accel: 21, brake: 38, turn: 2.0, offroad: 0.5 } },
   buggy: { name: 'Truck', scale: 1.45, stats: { max: 38, accel: 28, brake: 42, turn: 2.6, offroad: 0.85 } },
-  formula: { name: 'Formula', scale: 1.6, stats: { max: 48, accel: 27, brake: 46, turn: 2.5, offroad: 0.4 } },
-  future: { name: 'Super Sport', scale: 1.6, stats: { max: 52, accel: 30, brake: 48, turn: 2.6, offroad: 0.45 } },
+  formula: { name: 'Formula', scale: 1.6, stats: { max: 46, accel: 27, brake: 46, turn: 2.5, offroad: 0.4 } },
+  future: { name: 'Super Sport', scale: 1.6, stats: { max: 49, accel: 30, brake: 48, turn: 2.6, offroad: 0.45 } },
 };
 
 // Control points (x, z) for closed Catmull-Rom loops. Width is road width in meters.
 // scenery lists which models from src/scenery.json get scattered around (repeat a name to see more of it).
+// dress: the race-day dressing built in venue.js. style: speedway / woods / site / jungle / trip (colours of
+// the stands, tyre walls or barriers on the bends...). stands: how many grandstands by the start.
+// far: what fills the horizon (trees, pines, city, jungle, snow, none). The rest are extras for that track.
 function ellipse(rx, rz, n) {
   const pts = [];
   for (let i = 0; i < n; i++) {
@@ -52,6 +55,11 @@ export const TRACKS = {
     width: 16,
     ground: '#7cc464',
     points: ellipse(130, 70, 14),
+    balloons: 3,
+    dress: { style: 'speedway', stands: 2, pits: true, blimp: true, ferris: [-45, -5], far: 'city' },
+    // boost pads: [how far round the lap 0..1, meters left(-)/right(+) of the middle]. Tracks without
+    // boosts (or stars) get them placed automatically on the straights and before the jumps (see pickups.js).
+    boosts: [[0.08, -3], [0.45, 3], [0.55, -3]],
     scenery: {
       trees: ['tree_oak', 'tree_detailed', 'tree_default', 'tree_fat', 'tree_tall', 'tree_plateau'],
       small: ['plant_bushLarge', 'plant_bushDetailed', 'stone_largeB'],
@@ -63,6 +71,10 @@ export const TRACKS = {
     ground: '#4f9c4b',
     obstacles: 8, // trees growing in the road that you can crash into
     crossers: [['deer', 0.19], ['rabbit', 0.295], ['stag', 0.51], ['fox', 0.73], ['deer', 0.83]], // animals walking across the road: [kind, how far round the lap]
+    // rolling hills: up through the trees, a whoop at 0.5 that gives a little float, flat under the footbridge,
+    // then down into a hollow (heights: [fraction round the lap, meters], see addElevation in trackmath.js)
+    heights: [[0, 0], [0.06, 0], [0.17, 6], [0.21, 6], [0.3, 1], [0.36, 1], [0.44, 2], [0.46, 3], [0.5, 5], [0.54, 3], [0.6, 0], [0.66, 0], [0.79, -3], [0.84, -3], [0.93, 0]],
+    dress: { style: 'woods', stands: 1, bridge: 0.62, cabin: true, toadstools: 45, logs: 30, woodFence: true, far: 'pines' },
     animals: { deer: 7, stag: 4, bear: 3, fox: 6, rabbit: 12, birds: 3 }, // birds = flocks overhead
     scenery: {
       treeCount: 950, // a proper forest
@@ -91,11 +103,15 @@ export const TRACKS = {
       [32, 36], [-30, 62], [-110, 100], [-190, 70], [-218, -10],
     ],
     jumps: [[-10, -100], [100, 75], [-45, 70]],
+    // dirt mounds between the jumps (the jumps themselves sit on the flat; heights: see twisty)
+    heights: [[0, 0], [0.17, 0], [0.21, 4], [0.245, 4], [0.3, 0], [0.36, 0], [0.42, 6], [0.47, 6], [0.525, 0], [0.57, 0], [0.62, -2.5], [0.675, 0], [0.72, 0], [0.77, 3], [0.85, 3], [0.94, 0]],
     machines: [['tractor-shovel', 0.25], ['truck-flat', 0.4], ['tractor', 0.8], ['tractor-shovel', 0.92]],
     site: {
       cranes: [[-95, -18], [128, -22]],
       frames: [[15, -40, 4], [-160, 8, 2], [72, -8, 3]],
+      parked: 24, // machines parked beside the road
     },
+    dress: { style: 'site', stands: 1, site: true, far: 'city' },
     colors: { rock: '#8a6a45', stone: '#9c7b52', bush: '#6f8f4a' }, // rocks become heaps of earth
     scenery: {
       treeCount: 70,
@@ -119,12 +135,17 @@ export const TRACKS = {
       [-98, 20], [-116, -32], [-165, -48], [-215, -45], [-235, -95],
     ],
     ocean: { x: -288, side: -1 }, // the beach starts here and the sea lies to the west of it
+    // a rise in the desert, and a snowy hill with the switchback on top (flat round the axolotl pond and the beach)
+    heights: [[0, 0], [0.18, 0], [0.23, 4], [0.26, 4], [0.3, 0], [0.66, 0], [0.72, 5], [0.79, 5], [0.85, 0]],
+    // buttes: big layered rock towers out in the New Mexico desert: [x, z, radius, height, seed]
+    dress: { style: 'trip', stands: 2, buttes: [[335, -55, 34, 48, 1], [372, 118, 48, 64, 2], [318, 240, 30, 40, 3], [430, -190, 52, 74, 4], [175, 300, 40, 46, 5], [130, -310, 44, 56, 6], [470, 40, 40, 60, 7], [265, -265, 30, 36, 8], [520, 230, 60, 85, 9], [80, 420, 55, 70, 10]] },
     lands: [
       {
         area: [-700, 0, -700, 0],
         name: 'Rhode Island',
         motto: 'The Ocean State',
         ground: '#7cc464',
+        far: 'trees',
         inRoad: { kind: 'lemonade', count: 3, r: 1.1 }, // cups of Del's frozen lemonade
         scenery: {
           trees: ['tree_oak', 'tree_detailed', 'tree_default', 'tree_fat', 'tree_plateau', 'tree_pineDefaultA'],
@@ -139,6 +160,7 @@ export const TRACKS = {
         ground: '#eef4fb',
         hills: ['#c3d1e0', '#e2eaf2'],
         snowmen: 8,
+        far: 'snow',
         colors: { leaf: '#dfe8f0', pine: '#e3ecf3', bark: '#4b3a30', bush: '#e6eef5', rock: '#98a2ad', stone: '#eef3f8' },
         scenery: {
           trees: ['tree_pineRoundC', 'tree_pineTallA_detailed', 'tree_pineDefaultA', 'tree_pineDefaultA', 'tree_default'],
@@ -152,6 +174,7 @@ export const TRACKS = {
         surface: 'sand',
         ground: '#e2a468',
         mesas: true, // flat-topped hills on the horizon
+        far: 'none', // the buttes in dress fill this horizon
         hills: ['#b58f84', '#c4835c'],
         balloons: 8,
         inRoad: { kind: 'chile', count: 5, r: 0.9 }, // green chiles
@@ -164,6 +187,36 @@ export const TRACKS = {
         },
       },
     ],
+  },
+  // A pretzel of three loops that crosses itself twice: once on a tall bridge, once with a leap clean over
+  // the road below. heights: [fraction round the lap, meters] keys, eased from one to the next (see
+  // addElevation in trackmath.js). leaps: [fraction] where the road jumps over itself. Bridges are found by
+  // themselves wherever the road passes over itself.
+  skybridge: {
+    name: 'Sky Bridge',
+    width: 15,
+    ground: '#78c45a',
+    balloons: 5,
+    points: [
+      [-223.1, 0], [-218.5, 23.2], [-205.3, 42.8], [-185.7, 55.9], [-162.6, 60.5], [-139.4, 55.9], [-119.8, 42.8], [-98.4, 21.4],
+      [-77, 0], [-57.9, -15.2], [-36, -25.8], [-12.2, -31.2], [12.2, -31.2], [36, -25.8], [57.9, -15.2], [77, 0], [98.4, 21.4],
+      [119.8, 42.8], [139.4, 55.9], [162.6, 60.5], [185.7, 55.9], [205.3, 42.8], [218.5, 23.2], [223.1, 0], [218.5, -23.2],
+      [205.3, -42.8], [185.7, -55.9], [162.6, -60.5], [139.4, -55.9], [119.8, -42.8], [98.4, -21.4], [77, 0], [57.9, 15.2],
+      [36, 25.8], [12.2, 31.2], [-12.2, 31.2], [-36, 25.8], [-57.9, 15.2], [-77, 0], [-98.4, -21.4], [-119.8, -42.8],
+      [-139.4, -55.9], [-162.6, -60.5], [-185.7, -55.9], [-205.3, -42.8], [-218.5, -23.2],
+    ],
+    // up the left loop onto the bridge (0.176), down under the leap (0.324), over a bump and up round the
+    // right loop to the leap (0.676), then down under the bridge (0.824) and home
+    heights: [[0, 0], [0.05, 0], [0.15, 6.5], [0.205, 6.5], [0.295, -1.5], [0.35, -1.5], [0.42, 2.5], [0.437, 3.6], [0.455, 2.2],
+      [0.53, 3], [0.635, 6.5], [0.668, 6.5], [0.7, 6.1], [0.795, -1.5], [0.855, -1.5], [0.95, 0]],
+    leaps: [0.676],
+    boosts: [[0.06, 0], [0.38, -3], [0.6, 0], [0.9, 3]],
+    dress: { style: 'speedway', stands: 2, far: 'trees' },
+    scenery: {
+      treeCount: 260,
+      trees: ['tree_oak', 'tree_detailed', 'tree_default', 'tree_fat', 'tree_tall', 'tree_plateau'],
+      small: ['plant_bushLarge', 'plant_bushDetailed', 'stone_largeB'],
+    },
   },
   lake: {
     name: 'Dino Lake',
@@ -182,11 +235,13 @@ export const TRACKS = {
     animalsAt: [{ kind: 'longneck', x: 15, z: 5, yaw: 2.4 }], // wading in the lake
     crossers: [['stego', 0.22], ['trex', 0.32], ['parasaur', 0.42], ['threehorn', 0.6], ['raptor', 0.69], ['raptor', 0.9]], // dinosaurs walking across the road (keep them off the jumps)
     colors: { rock: '#6d625c', stone: '#8a7f78' },
+    dress: { style: 'jungle', stands: 1, arches: [0.13, 0.57], nests: 4, far: 'jungle' },
     scenery: {
       treeCount: 340,
       treeSize: [8, 16],
+      smallCount: 560, // thick jungle ferns
       trees: ['tree_palmTall', 'tree_palmDetailedTall', 'tree_palmBend', 'tree_palmShort', 'tree_palmDetailedShort', 'tree_palmDetailedTall'],
-      small: ['rock_largeA', 'rock_tallC', 'plant_flatTall', 'plant_bushLarge', 'plant_bushDetailed', 'rock_tallA'],
+      small: ['rock_largeA', 'plant_flatTall', 'plant_flatTall', 'plant_bushLarge', 'plant_bushDetailed', 'plant_flatTall', 'plant_bushDetailed', 'rock_tallA'],
     },
     points: [
       [-150, 0], [-120, -70], [-40, -100], [40, -70], [110, -100], [160, -40],
@@ -217,6 +272,7 @@ export const UNLOCKS = [
   [6, 'body', 'muscle'],
   [7, 'track', 'roadtrip'],
   [8, 'spoiler', 'small'],
+  [9, 'track', 'skybridge'],
   [9, 'color', 'green'],
   [10, 'wheels', 'gold'],
   [11, 'body', 'buggy'],

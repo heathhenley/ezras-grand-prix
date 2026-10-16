@@ -20,11 +20,13 @@ import { Vector3 } from '@babylonjs/core/Maths/math.vector';
 import { Color3 } from '@babylonjs/core/Maths/math.color';
 import '@babylonjs/core/Materials/Textures/Loaders/envTextureLoader';
 import '@babylonjs/core/Lights/Shadows/shadowGeneratorSceneComponent';
+import { DefaultRenderingPipeline } from '@babylonjs/core/PostProcesses/RenderPipeline/Pipelines/defaultRenderingPipeline';
+import '@babylonjs/core/PostProcesses/RenderPipeline/postProcessRenderPipelineManagerSceneComponent';
 
 export const asset = (name) => `${import.meta.env.BASE_URL}assets/${name}`;
 
 // Colour of the haze at the bottom of the sky picture; fog fades the ground into it.
-export const HORIZON = '#9ba1ae';
+export const HORIZON = '#a8bacf'; // a soft sky blue, so the distance looks airy rather than grey
 
 // Where the sun sits in the sky picture (unit vector pointing at it).
 const SUN_DIR = new Vector3(0.531, 0.7325, 0.426).normalize();
@@ -117,4 +119,57 @@ export function setupSky(scene, { showSky = true, range = SHADOW_RANGE, look = {
 
 export function castShadows(shadows, root) {
   for (const m of root.getChildMeshes()) if (m.name !== 'contact') shadows.addShadowCaster(m, false);
+}
+
+// A soft dark edge round the screen, so the eye goes to the middle. Used by the scene and the sky.
+function vignette(ip) {
+  ip.vignetteEnabled = true;
+  ip.vignetteWeight = 1.25;
+  ip.vignetteStretch = 0.3;
+  ip.vignetteColor.set(0.05, 0.07, 0.16, 0); // a navy tint rather than black: friendlier
+  ip.vignetteBlendMode = ImageProcessingConfiguration.VIGNETTEMODE_MULTIPLY;
+}
+
+// Post-processing for the race camera: anti-aliasing, a gentle glow on bright things (lamps, flames,
+// sparks) and a touch of colour fringing while boosting. Tone mapping stays in the materials (see
+// setupSky) so the sky picture can skip it. If the frame rate drops, the extras switch off one by one.
+// Returns { update(dt, player), dispose() }.
+export function setupPost(scene, camera, { touch = false } = {}) {
+  vignette(scene.imageProcessingConfiguration);
+  const sky = scene.getMaterialByName('sky');
+  if (sky?.imageProcessingConfiguration) vignette(sky.imageProcessingConfiguration);
+
+  const engine = scene.getEngine();
+  const pipe = new DefaultRenderingPipeline('post', false, scene, [camera]);
+  pipe.imageProcessingEnabled = false;
+  pipe.samples = engine.webGLVersion >= 2 ? 4 : 1; // MSAA is nearly free on tablet GPUs
+  pipe.fxaaEnabled = pipe.samples < 2;
+  pipe.bloomEnabled = true;
+  pipe.bloomThreshold = 0.88;
+  pipe.bloomWeight = 0.25;
+  pipe.bloomKernel = touch ? 32 : 48;
+  pipe.bloomScale = touch ? 0.35 : 0.5;
+  pipe.chromaticAberrationEnabled = !touch;
+  if (!touch) { pipe.chromaticAberration.aberrationAmount = 0; pipe.chromaticAberration.radialIntensity = 1.5; } // clean in the middle
+
+  let fringe = 0, slow = 0, step = 0, watch = 0;
+  return {
+    update(dt, player) {
+      // frame rate watchdog: after a few seconds of struggling, drop the next most expensive extra
+      watch += dt;
+      if (watch > 2) slow = dt > 1 / 45 ? slow + dt : Math.max(0, slow - dt * 0.5);
+      if (slow > 2.5 && step < 3) {
+        slow = 0;
+        step++;
+        if (step === 1) pipe.bloomEnabled = false;
+        if (step === 2) pipe.chromaticAberrationEnabled = false;
+        if (step === 3) { pipe.samples = 1; pipe.fxaaEnabled = true; }
+      }
+      if (pipe.chromaticAberrationEnabled && pipe.chromaticAberration) { // null once the pipeline is disposed
+        fringe += ((player.boost > 0 ? 9 : 0) - fringe) * Math.min(1, dt * 5);
+        pipe.chromaticAberration.aberrationAmount = fringe;
+      }
+    },
+    dispose() { pipe.dispose(); },
+  };
 }

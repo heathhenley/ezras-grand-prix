@@ -1,6 +1,6 @@
 // Keyboard + on-screen touch buttons, merged into one control state.
 
-const touch = { left: false, right: false, gas: false, brake: false };
+const touch = { left: false, right: false, gas: false, brake: false, nitro: false };
 const keys = new Set();
 
 addEventListener('keydown', (e) => keys.add(e.code));
@@ -54,7 +54,8 @@ export function readControls(autoGas) {
   const gas = touch.gas || any('ArrowUp', 'KeyW') || (autoGas && !brake);
   // buttons and keys win over tilt, so the arrows still work as a backup
   const steer = (right ? 1 : 0) - (left ? 1 : 0) || (tilt ?? 0);
-  return { steer, throttle: gas ? 1 : 0, brake: brake ? 1 : 0 };
+  const nitro = touch.nitro || any('ShiftLeft', 'ShiftRight', 'KeyN');
+  return { steer, throttle: gas ? 1 : 0, brake: brake ? 1 : 0, nitro: nitro ? 1 : 0 };
 }
 
 export function bindTouchButtons(root) {

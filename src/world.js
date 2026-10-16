@@ -11,9 +11,11 @@ import { ImageProcessingConfiguration } from '@babylonjs/core/Materials/imagePro
 import { pbr as mat, tiled, HORIZON } from './env.js';
 import MODELS from './scenery.json'; // Kenney Nature Kit shapes, made by tools/build-scenery.mjs
 import PROPS from './props.json'; // cones, barriers, diggers... made by tools/build-props.mjs
-import { RAMP_LENGTH, RAMP_HEIGHT, GAP_LENGTH } from './physics.js';
+import { RAMP_LENGTH, RAMP_HEIGHT, GAP_LENGTH, WALL_MARGIN } from './physics.js';
 import { MACHINES } from './data.js';
 import { addAnimals } from './animals.js';
+import { buildVenue, NEAR_RANGE } from './venue.js';
+import { roadField, makeTerrain, themeOf, cullByDistance, spotGrid, SAFE, CHUNK } from './roadside.js';
 import '@babylonjs/core/Meshes/instancedMesh';
 
 // Colours for the parts of the scenery models (the kit's own colours are teal and orange).
@@ -43,12 +45,19 @@ function hills(scene, rand, radius, low, high, layer, landAt) {
   for (let i = 0; i <= N; i++) {
     const a = (i / N) * Math.PI * 2;
     const x = Math.sin(a) * radius, z = Math.cos(a) * radius;
-    const land = landAt(x, z);
+    // blend the lands on either side, so there is no hard seam where one meets the next
+    let mesa = 0;
+    const top = new Color3(0, 0, 0), K = 8;
+    for (let k = -K; k <= K; k++) {
+      const b = a + k * 0.02, land = landAt(Math.sin(b) * radius, Math.cos(b) * radius);
+      mesa += land.mesas ? 1 / (2 * K + 1) : 0;
+      top.addInPlace(Color3.FromHexString((land.hills ?? HILL_COLORS)[layer]).scale(1 / (2 * K + 1)));
+    }
     let h = 0;
     for (const [n, phase, amp] of waves) h += Math.sin(a * n + phase) * amp;
     let t = Math.max(0, Math.min(1, 0.5 + h * 0.3));
-    if (land.mesas) t = t > 0.58 ? 0.95 : t > 0.42 ? 0.5 : 0.1; // steps instead of slopes
-    const top = Color3.FromHexString((land.hills ?? HILL_COLORS)[layer]);
+    // desert: low flat-topped steps (the big 3D buttes nearer in do the showing off)
+    if (mesa) t = t * (1 - mesa) + (t > 0.58 ? 0.45 : t > 0.42 ? 0.28 : 0.1) * mesa;
     positions.push(x, -2, z, x, low + (high - low) * t, z);
     colors.push(base.r, base.g, base.b, 1, top.r, top.g, top.b, 1);
     if (i < N) indices.push(i * 2, i * 2 + 1, i * 2 + 2, i * 2 + 1, i * 2 + 3, i * 2 + 2);
@@ -127,21 +136,22 @@ function stateSign(scene, s, hw, land, shadows) {
   const fm = mat(scene, 'signFace', '#ffffff', 0.6);
   fm.albedoTexture = tex;
   face.material = fm;
-  face.position.set(s.x, up, s.z);
+  const y0 = s.y ?? 0; // the road's height there
+  face.position.set(s.x, y0 + up, s.z);
   face.rotation.y = s.heading;
   // plain backing just behind the face, so the sign is not see-through from the other side
   const back = MeshBuilder.CreateBox('signBack', { width: W + 0.3, height: H + 0.3, depth: 0.25 }, scene);
   back.material = mat(scene, 'signBack', '#1d6b45', 0.6);
-  back.position.set(s.x + s.tx * 0.14, up, s.z + s.tz * 0.14);
+  back.position.set(s.x + s.tx * 0.14, y0 + up, s.z + s.tz * 0.14);
   back.rotation.y = s.heading;
   const post = MeshBuilder.CreateBox('signPost', { width: 0.45, height: up + H / 2, depth: 0.45 }, scene);
   post.material = mat(scene, 'signPost', '#6f757d', 0.4, 0.8);
-  place(post, [-1, 1].map((side) => [s.x + s.rx * side * (hw + 2.2) + s.tx * 0.14, (up + H / 2) / 2, s.z + s.rz * side * (hw + 2.2) + s.tz * 0.14, s.heading]));
+  place(post, [-1, 1].map((side) => [s.x + s.rx * side * (hw + 2.2) + s.tx * 0.14, y0 + (up + H / 2) / 2 - 0.5, s.z + s.rz * side * (hw + 2.2) + s.tz * 0.14, s.heading]));
   for (const m of [back, post]) shadows.addShadowCaster(m, false);
 }
 
 // Snowmen: three snowballs, coal eyes and a carrot nose. spots is a list of [x, z, yaw].
-function snowmen(scene, spots, shadows) {
+function snowmen(scene, spots, shadows, ground = () => 0) {
   const ball = MeshBuilder.CreateSphere('snowball', { diameter: 1, segments: 10 }, scene);
   ball.material = mat(scene, 'snow', '#f4f8fc', 0.8);
   const coal = MeshBuilder.CreateSphere('coal', { diameter: 0.16, segments: 6 }, scene);
@@ -152,11 +162,12 @@ function snowmen(scene, spots, shadows) {
   nose.material = mat(scene, 'carrot', '#ff7a1a', 0.7);
   const balls = [], coals = [], noses = [];
   for (const [x, z, yaw] of spots) {
+    const g = ground(x, z) - 0.1; // standing on the ground, hills and all
     const fx = Math.sin(yaw), fz = Math.cos(yaw);
-    balls.push([x, 1.0, z, yaw, 2.3, 2.1, 2.3], [x, 2.55, z, yaw, 1.7, 1.6, 1.7], [x, 3.75, z, yaw, 1.2, 1.2, 1.2]);
-    for (const side of [-1, 1]) coals.push([x + fx * 0.5 + fz * side * 0.22, 3.95, z + fz * 0.5 - fx * side * 0.22, yaw]);
-    for (const y of [2.3, 2.75]) coals.push([x + fx * 0.82, y, z + fz * 0.82, yaw]); // buttons
-    noses.push([x + fx * 0.85, 3.72, z + fz * 0.85, yaw]);
+    balls.push([x, g + 1.0, z, yaw, 2.3, 2.1, 2.3], [x, g + 2.55, z, yaw, 1.7, 1.6, 1.7], [x, g + 3.75, z, yaw, 1.2, 1.2, 1.2]);
+    for (const side of [-1, 1]) coals.push([x + fx * 0.5 + fz * side * 0.22, g + 3.95, z + fz * 0.5 - fx * side * 0.22, yaw]);
+    for (const y of [2.3, 2.75]) coals.push([x + fx * 0.82, g + y, z + fz * 0.82, yaw]); // buttons
+    noses.push([x + fx * 0.85, g + 3.72, z + fz * 0.85, yaw]);
   }
   place(ball, balls);
   place(coal, coals);
@@ -231,14 +242,14 @@ function propShape(scene, name, material) {
 
 // Fixed props from props.json (cones, barriers, parked diggers...). Collect where they go with add(),
 // then build() makes one shape per kind of prop, however many copies there are.
-function propSet(scene, shadows) {
+function propSet(scene, shadows, ground = () => 0) {
   const spots = {};
   const material = mat(scene, 'prop', '#ffffff', 0.6); // white, so the per-corner colours show through
   return {
     material,
     add(name, x, z, yaw, tall, y = 0) {
       const s = tall / PROPS[name].height;
-      (spots[name] ??= []).push([x, y, z, yaw, s, s, s]);
+      (spots[name] ??= []).push([x, y + ground(x, z), z, yaw, s, s, s]); // y: how far up off the ground
     },
     build() {
       for (const [name, list] of Object.entries(spots)) {
@@ -270,8 +281,8 @@ function movingMachines(scene, movers, track, material, shadows) {
   scene.onBeforeRenderObservable.add(() => {
     const t = performance.now() / 1000;
     for (const { o, m, beacon, tall, phase } of list) {
-      m.position.set(o.x, 0, o.z);
-      beacon.position.set(o.x, tall + 0.3, o.z);
+      m.position.set(o.x, o.y ?? 0, o.z);
+      beacon.position.set(o.x, (o.y ?? 0) + tall + 0.3, o.z);
       beacon.isVisible = (t * 2 + phase) % 1 < 0.5;
     }
   });
@@ -280,7 +291,7 @@ function movingMachines(scene, movers, track, material, shadows) {
 // Giant things standing in the road on the road trip (the obstacles made by addRoadItems in physics.js).
 // items: those obstacles, each with a kind.
 function roadItems(scene, items, shadows) {
-  const spots = (kind) => items.filter((o) => o.kind === kind).map((o) => [o.x, 0, o.z, o.idx * 1.3]);
+  const spots = (kind) => items.filter((o) => o.kind === kind).map((o) => [o.x, o.y ?? 0, o.z, o.idx * 1.3]);
   const put = (mesh, list) => { place(mesh, list); shadows.addShadowCaster(mesh, false); };
 
   // green chiles: 4.5 m tall, standing on their tips
@@ -349,9 +360,9 @@ function roadItems(scene, items, shadows) {
 }
 
 // A jump: a striped ramp across the road, then a dug-up trench with pipes in it, fenced with barriers.
-function jump(scene, s, def, props, shadows) {
-  const half = def.width / 2 + 1;
-  const at = (across, along, y) => [s.x + s.rx * across + s.tx * along, y, s.z + s.rz * across + s.tz * along];
+function jump(scene, s, def, props, shadows, leap = false) {
+  const half = def.width / 2 + (leap ? -0.4 : 1); // a leap's kicker fits between the bridge railings
+  const at = (across, along, y) => [s.x + s.rx * across + s.tx * along, y + (s.y ?? 0) + (s.grade ?? 0) * along, s.z + s.rz * across + s.tz * along];
   // wedge: flat at the back, RAMP_HEIGHT tall at the lip. Corners: 0-3 on the ground, 4-5 the top edge.
   const c = [at(-half, -RAMP_LENGTH, 0.02), at(half, -RAMP_LENGTH, 0.02), at(-half, 0, 0.02), at(half, 0, 0.02), at(-half, 0, RAMP_HEIGHT), at(half, 0, RAMP_HEIGHT)];
   const stripes = new DynamicTexture('hazard', { width: 128, height: 128 }, scene, true);
@@ -382,6 +393,7 @@ function jump(scene, s, def, props, shadows) {
   face('rampBack', [c[2], c[3], c[4], c[5]], [0, 0, 1, 0, 0, 1, 1, 1], side);
   face('rampLeft', [c[0], c[2], c[4]], [0, 0, 1, 0, 1, 1], side);
   face('rampRight', [c[1], c[3], c[5]], [0, 0, 1, 0, 1, 1], side);
+  if (leap) return; // the open gap and the landing are part of the bridge (see bridges())
 
   // the trench: churned-up dirt with big concrete pipes lying across it
   const dirt = mat(scene, 'trench', '#ffffff', 1);
@@ -449,7 +461,7 @@ function steelFrame(x, z, floors, yaw) {
 // A lava jump: a rock ramp, then a river of lava flowing across the road.
 function lavaJump(scene, s, def, lava, shadows) {
   const half = def.width / 2 + 1;
-  const at = (across, along, y) => [s.x + s.rx * across + s.tx * along, y, s.z + s.rz * across + s.tz * along];
+  const at = (across, along, y) => [s.x + s.rx * across + s.tx * along, y + (s.y ?? 0) + (s.grade ?? 0) * along, s.z + s.rz * across + s.tz * along];
   // corners go [left-near, right-near, left-far, right-far]; wide x long is its size in meters, for the texture
   const quad = (name, corners, material, wide = 1, long = 1) => {
     const m = new Mesh(name, scene), vd = new VertexData();
@@ -622,10 +634,128 @@ function balloon(scene, radius, [hexA, hexB]) {
   return node;
 }
 
+// The ground of one land on a hilly track: a grid that is fine near the road (where the hills are) and
+// coarse out to the edge of the land, with no cracks between the two (every row and column runs right
+// across). terrain is from addElevation in trackmath.js; gy(x, z) reads its heights.
+function hillyGround(scene, terrain, [x0, x1, z0, z1], gy) {
+  const lines = (lo, hi, t0, n) => {
+    const t1 = t0 + (n - 1) * terrain.cell, out = new Set([lo, hi]);
+    for (let v = Math.ceil(lo / 100) * 100; v < hi; v += 100) if (v < t0 || v > t1) out.add(v);
+    for (let k = 0; k < n; k++) { const v = t0 + k * terrain.cell; if (v > lo && v < hi) out.add(v); }
+    return [...out].sort((a, b) => a - b);
+  };
+  const xs = lines(x0, x1, terrain.x0, terrain.nx), zs = lines(z0, z1, terrain.z0, terrain.nz);
+  const positions = [], uvs = [], indices = [], W = xs.length;
+  for (const z of zs) for (const x of xs) { positions.push(x, gy(x, z), z); uvs.push((x - x0) / (x1 - x0), (z - z0) / (z1 - z0)); }
+  for (let j = 0; j < zs.length - 1; j++) for (let i = 0; i < W - 1; i++) {
+    const k = j * W + i;
+    indices.push(k, k + 1, k + W, k + 1, k + W + 1, k + W); // wound to face up
+  }
+  const m = new Mesh('ground', scene), vd = new VertexData();
+  Object.assign(vd, { positions, uvs, indices, normals: [] });
+  VertexData.ComputeNormals(positions, indices, vd.normals);
+  vd.applyToMesh(m);
+  m.isPickable = false;
+  return m;
+}
+
+// Bridges and leaps (marked on the samples by addElevation in trackmath.js): a deck under the road with
+// friendly blue sides, white railings with a red top along the edges (and funnelling in to the bridge on
+// the way up), and pairs of pillars standing on the ground, kept clear of the road underneath.
+function bridges(scene, track, hw, gy, shadows) {
+  const { samples, count } = track;
+  if (!samples.some((s) => s.bridge || s.gap)) return;
+  const P = [], C = [], I = [];
+  const col = (hex) => Color3.FromHexString(hex).toLinearSpace();
+  const quad = (a, b, c, d, k) => { // corners going round, seen from the front
+    const n = P.length / 3;
+    P.push(...a, ...b, ...c, ...d);
+    for (let i = 0; i < 4; i++) C.push(k.r, k.g, k.b, 1);
+    I.push(n, n + 1, n + 2, n, n + 2, n + 3);
+  };
+  const at = (s, lat, y) => [s.x + s.rx * lat, y, s.z + s.rz * lat];
+  const SIDE = col('#2f6fed'), UNDER = col('#9aa3ae'), RAIL = col('#f1f3f6'), TOP = col('#e63946'), DECK = 1.1, EDGE = hw + 1.3;
+  const next = (i) => (i + 1) % count;
+  for (let i = 0; i < count; i++) {
+    const s = samples[i], t = samples[next(i)], y0 = s.y, y1 = t.y;
+    // the deck: two blue sides and a grey underside
+    if (s.bridge && t.bridge) {
+      for (const side of [-1, 1]) {
+        const a = at(s, side * EDGE, y0 + 0.01), b = at(t, side * EDGE, y1 + 0.01), c = at(t, side * EDGE, y1 - DECK), d = at(s, side * EDGE, y0 - DECK);
+        if (side > 0) quad(a, b, c, d, SIDE); else quad(b, a, d, c, SIDE);
+        // the strip of deck between the road edge and the railing
+        const e = at(s, side * hw, y0 + 0.019), f = at(t, side * hw, y1 + 0.019);
+        if (side > 0) quad(e, f, b, a, UNDER); else quad(f, e, a, b, UNDER);
+      }
+      quad(at(s, -EDGE, y0 - DECK), at(t, -EDGE, y1 - DECK), at(t, EDGE, y1 - DECK), at(s, EDGE, y0 - DECK), UNDER);
+    }
+    // the deck ends at the gap of a leap (and wherever a bridge runs into the ground): a square end
+    const prev = samples[(i - 1 + count) % count];
+    if (s.bridge && (prev.gap || t.gap)) {
+      const k = t.gap ? 1 : -1, [x, z] = [s.x + s.tx * k * 1, s.z + s.tz * k * 1], e = { ...s, x, z };
+      const a = at(e, -EDGE, y0 + 0.02), b = at(e, EDGE, y0 + 0.02), c = at(e, EDGE, y0 - DECK), d = at(e, -EDGE, y0 - DECK);
+      if (k > 0) quad(a, b, c, d, SIDE); else quad(b, a, d, c, SIDE);
+      if (k > 0) quad(at(s, -EDGE, y0 + 0.02), at(e, -EDGE, y0 + 0.02), at(e, EDGE, y0 + 0.02), at(s, EDGE, y0 + 0.02), UNDER);
+      else quad(at(e, -EDGE, y0 + 0.02), at(s, -EDGE, y0 + 0.02), at(s, EDGE, y0 + 0.02), at(e, EDGE, y0 + 0.02), UNDER);
+    }
+    // railings: wherever the wall closes in, a low barrier just outside it (none across the gap)
+    const railed = (q) => !q.gap && q.wall < hw + WALL_MARGIN - 0.05;
+    if (railed(s) && railed(t)) {
+      for (const side of [-1, 1]) {
+        const li = s.wall + 1, lt = t.wall + 1, H = 0.85, T = 0.5, body = Math.floor(i / 2) % 2 ? TOP : RAIL; // red and white blocks, like the curbs
+        const base0 = s.bridge ? y0 : Math.min(y0, gy(...[s.x + s.rx * side * li, s.z + s.rz * side * li])) - 0.3;
+        const base1 = t.bridge ? y1 : Math.min(y1, gy(...[t.x + t.rx * side * lt, t.z + t.rz * side * lt])) - 0.3;
+        const face = (l0, l1, h0, h1, k, flip) => {
+          const a = at(s, side * l0, base0 + h0), b = at(t, side * l1, base1 + h0), c = at(t, side * l1, y1 + h1), d = at(s, side * l0, y0 + h1);
+          if ((side > 0) !== flip) quad(d, c, b, a, k); else quad(c, d, a, b, k);
+        };
+        face(li, lt, 0, H, body, false); // inner face
+        face(li + T, lt + T, 0, H, body, true); // outer face
+        // top
+        const a = at(s, side * li, y0 + H), b = at(t, side * lt, y1 + H), c = at(t, side * (lt + T), y1 + H), d = at(s, side * (li + T), y0 + H);
+        if (side > 0) quad(a, b, c, d, body); else quad(b, a, d, c, body);
+      }
+    }
+  }
+  const m = new Mesh('bridgeDeck', scene), vd = new VertexData();
+  Object.assign(vd, { positions: P, colors: C, indices: I, normals: [] });
+  VertexData.ComputeNormals(P, I, vd.normals);
+  vd.applyToMesh(m);
+  m.material = mat(scene, 'bridge', '#ffffff', 0.7);
+  m.material.backFaceCulling = false;
+  m.material.twoSidedLighting = true; // lit the same from either side, whichever way each face was wound
+  m.receiveShadows = true;
+  m.isPickable = false;
+  shadows.addShadowCaster(m, false);
+
+  // pillars: a pair under the deck every 12 m, standing on the ground, never in the road below
+  const clear = (x, z, i) => samples.every((q, j) => { const d = Math.abs(i - j); return Math.min(d, count - d) < 30 || (q.x - x) ** 2 + (q.z - z) ** 2 > (hw + WALL_MARGIN + 2) ** 2; });
+  const legs = [], caps = [];
+  for (let i = 0; i < count; i += 6) {
+    const s = samples[i];
+    if (!s.bridge) continue;
+    const feet = [-1, 1].map((side) => [s.x + s.rx * side * (hw - 1.5), s.z + s.rz * side * (hw - 1.5)]);
+    if (!feet.every(([x, z]) => clear(x, z, i))) continue;
+    const top = s.y - DECK;
+    for (const [x, z] of feet) {
+      const foot = gy(x, z) - 0.5, tall = top - foot;
+      if (tall > 0.8) legs.push([x, foot + tall / 2, z, s.heading, 1, tall, 1]);
+    }
+    caps.push([s.x, top - 0.35, s.z, s.heading, 2 * hw, 1, 1]);
+  }
+  const leg = MeshBuilder.CreateCylinder('pillar', { diameter: 1.6, height: 1, tessellation: 12 }, scene);
+  leg.material = mat(scene, 'pillar', '#c9ced6', 0.8);
+  const cap = MeshBuilder.CreateBox('pillarCap', { width: 1, height: 0.7, depth: 1.6 }, scene);
+  cap.material = mat(scene, 'pillarCap', '#ffd23f', 0.6);
+  place(leg, legs);
+  place(cap, caps);
+  for (const p of [leg, cap]) { p.receiveShadows = true; shadows.addShadowCaster(p, false); }
+}
+
 function place(mesh, list) {
-  // list of [x, y, z, yaw, sx, sy, sz]
-  const ms = list.map(([x, y, z, yaw, sx = 1, sy = 1, sz = 1]) =>
-    Matrix.Compose(new Vector3(sx, sy, sz), Quaternion.FromEulerAngles(0, yaw, 0), new Vector3(x, y, z)));
+  // list of [x, y, z, yaw, sx, sy, sz, pitch] (pitch: + tips the nose down, for things lying on a slope)
+  const ms = list.map(([x, y, z, yaw, sx = 1, sy = 1, sz = 1, pitch = 0]) =>
+    Matrix.Compose(new Vector3(sx, sy, sz), Quaternion.FromEulerAngles(pitch, yaw, 0), new Vector3(x, y, z)));
   if (ms.length) mesh.thinInstanceAdd(ms);
   mesh.freezeWorldMatrix();
 }
@@ -643,21 +773,63 @@ export function buildWorld(scene, track, def, shadows) {
   const sea = def.ocean; // { x: where the beach starts, side: -1 west / +1 east }
   const inSea = (x, pad = 0) => sea && (x - sea.x) * sea.side > -pad;
 
-  for (const land of lands) {
-    const [x0, x1, z0, z1] = land.area, wide = x1 - x0, deep = z1 - z0;
-    const ground = MeshBuilder.CreateGround('ground', { width: wide, height: deep }, scene);
-    ground.position.set((x0 + x1) / 2, 0, (z0 + z1) / 2);
+  const groundMat = (land, uScale, vScale) => {
     const gm = mat(scene, 'ground', '#ffffff', 1);
     const surface = land.surface ?? 'grass';
-    if (surface !== 'snow') gm.albedoTexture = tiled(scene, surface === 'grass' ? 'grass_diff.jpg' : 'sand_diff.jpg', wide / GRASS_TILE, deep / GRASS_TILE);
+    if (surface !== 'snow') gm.albedoTexture = tiled(scene, surface === 'grass' ? 'grass_diff.jpg' : 'sand_diff.jpg', uScale, vScale);
     // grass and sand keep their own shade by tinting the photo; snow is plain blue-white
     const tint = Color3.FromHexString(land.ground).toLinearSpace();
     gm.albedoColor = surface === 'snow' ? new Color3(0.8, 0.87, 0.97)
       : surface === 'sand' ? Color3.Lerp(Color3.White(), tint, 0.55).scale(1.25)
       : Color3.Lerp(Color3.White(), tint, land.groundMix ?? 0.3).scale(0.8); // groundMix: how strongly the grass takes the colour
     gm.specularIntensity = 0.3;
-    ground.material = gm;
+    return gm;
+  };
+  const gy = track.groundAt ?? (() => 0); // the height of the ground anywhere (hills round a hilly road)
+  for (const land of lands) {
+    const [x0, x1, z0, z1] = land.area, wide = x1 - x0, deep = z1 - z0;
+    const ground = track.terrain ? hillyGround(scene, track.terrain, land.area, gy) : MeshBuilder.CreateGround('ground', { width: wide, height: deep }, scene);
+    if (!track.terrain) ground.position.set((x0 + x1) / 2, 0, (z0 + z1) / 2);
+    ground.material = groundMat(land, wide / GRASS_TILE, deep / GRASS_TILE);
     ground.receiveShadows = true;
+  }
+  // Where two lands meet, fade one ground into the other across a wavy strip, instead of a hard straight edge.
+  // Sand spreads over snow and grass, snow over grass.
+  const RANK = { grass: 0, snow: 1, sand: 2 };
+  for (const A of lands) {
+    const [x0, x1, z0, z1] = A.area, WIDE = 30, COLS = 6;
+    // each edge: the point at u (0..1) along it, and the direction out of A
+    const edges = [[(u) => [x0, z0 + (z1 - z0) * u], [-1, 0]], [(u) => [x1, z0 + (z1 - z0) * u], [1, 0]], [(u) => [x0 + (x1 - x0) * u, z0], [0, -1]], [(u) => [x0 + (x1 - x0) * u, z1], [0, 1]]];
+    for (const [edge, [ox, oz]] of edges) {
+      const positions = [], colors = [], uvs = [], indices = [];
+      const rows = Math.ceil((ox ? z1 - z0 : x1 - x0) / 4);
+      let any = false;
+      for (let r = 0; r <= rows; r++) {
+        const [ex, ez] = edge(r / rows), other = landAt(ex + ox * 2, ez + oz * 2);
+        const show = Math.abs(ex) < 600 && Math.abs(ez) < 600 && other !== A && RANK[A.surface ?? 'grass'] > RANK[other.surface ?? 'grass'];
+        const along = ox ? ez : ex, wobble = 0.35 * Math.sin(along * 0.045) + 0.2 * Math.sin(along * 0.13 + 1.7);
+        any ||= show;
+        for (let c = 0; c <= COLS; c++) {
+          const d = (c / COLS) * WIDE, x = ex + ox * (d - 3), z = ez + oz * (d - 3);
+          positions.push(x, gy(x, z) + 0.012, z);
+          uvs.push(x / GRASS_TILE, z / GRASS_TILE);
+          colors.push(1, 1, 1, show && c < COLS ? Math.max(0, Math.min(1, 1.15 - (d / WIDE) * 1.6 + wobble)) : 0);
+          if (r < rows && c < COLS) { const i = r * (COLS + 1) + c; indices.push(i, i + 1, i + COLS + 1, i + 1, i + COLS + 2, i + COLS + 1); }
+        }
+      }
+      if (!any) continue;
+      const strip = new Mesh('landEdge', scene), vd = new VertexData();
+      Object.assign(vd, { positions, colors, uvs, indices });
+      vd.normals = positions.map((_, i) => (i % 3 === 1 ? 1 : 0)); // straight up, whichever way the edge runs
+      vd.applyToMesh(strip);
+      const sm = groundMat(A, 1, 1);
+      sm.transparencyMode = 2; // alpha blend, using the fade in the vertex colours
+      sm.backFaceCulling = false;
+      strip.hasVertexAlpha = true;
+      strip.material = sm;
+      strip.receiveShadows = true;
+      strip.isPickable = false;
+    }
   }
 
   // Seaside: a strip of beach, then water out to the horizon
@@ -683,7 +855,7 @@ export function buildWorld(scene, track, def, shadows) {
     roots.bakeCurrentTransformIntoVertices();
     roots.material = mat(scene, 'roots', '#5b4128', 1);
     roots.material.backFaceCulling = false;
-    place(roots, roadTrees.map((o) => [o.x, 0.05, o.z, 0, 2.2, 1, 2.2]));
+    place(roots, roadTrees.map((o) => [o.x, (o.y ?? 0) + 0.05, o.z, 0, 2.2, 1, 2.2]));
     roots.receiveShadows = true;
   }
 
@@ -692,11 +864,13 @@ export function buildWorld(scene, track, def, shadows) {
   const positions = [], normals = [], uvs = [], indices = [];
   for (let i = 0; i <= count; i++) {
     const s = samples[i % count];
-    positions.push(s.x - s.rx * hw, 0.02, s.z - s.rz * hw, s.x + s.rx * hw, 0.02, s.z + s.rz * hw);
+    const y = (s.y ?? 0) + 0.02;
+    positions.push(s.x - s.rx * hw, y, s.z - s.rz * hw, s.x + s.rx * hw, y, s.z + s.rz * hw);
     normals.push(0, 1, 0, 0, 1, 0);
     const v = (i / count) * laps;
     uvs.push(0, v, def.width / ROAD_TILE, v);
-    if (i < count) indices.push(i * 2, i * 2 + 2, i * 2 + 1, i * 2 + 1, i * 2 + 2, i * 2 + 3);
+    // no road over the open gap of a leap
+    if (i < count && !s.gap && !samples[(i + 1) % count].gap) indices.push(i * 2, i * 2 + 2, i * 2 + 1, i * 2 + 1, i * 2 + 2, i * 2 + 3);
   }
   const road = new Mesh('road', scene);
   const vd = new VertexData();
@@ -720,11 +894,13 @@ export function buildWorld(scene, track, def, shadows) {
   curbR.material = mat(scene, 'curbRed', '#d62839', 0.6);
   curbW.material = mat(scene, 'curbWhite', '#e8e8e8', 0.6);
   const reds = [], whites = [];
+  const tip = (s) => -Math.atan(s.grade ?? 0); // tilts a flat thing to lie along the slope of the road
   samples.forEach((s, i) => {
+    if (s.gap || s.wall < hw + 0.6) return; // railings take over from the curbs on bridges
     for (const side of [-1, 1]) {
       const off = side * (hw + 0.6);
       // reds sit a hair higher so neighbours don't flicker where they overlap on the inside of a bend
-      (i % 2 ? reds : whites).push([s.x + s.rx * off, i % 2 ? 0.066 : 0.06, s.z + s.rz * off, s.heading]);
+      (i % 2 ? reds : whites).push([s.x + s.rx * off, (s.y ?? 0) + (i % 2 ? 0.066 : 0.06), s.z + s.rz * off, s.heading, 1, 1, 1, tip(s)]);
     }
   });
   place(curbR, reds);
@@ -734,7 +910,7 @@ export function buildWorld(scene, track, def, shadows) {
   // Dashed center line
   const dash = MeshBuilder.CreateBox('dash', { width: 0.3, height: 0.02, depth: 2.2 }, scene);
   dash.material = mat(scene, 'paintLine', '#e6e6e6', 0.7);
-  place(dash, samples.filter((_, i) => i % 4 === 0 && i > 4 && i < count - 4).map((s) => [s.x, 0.035, s.z, s.heading]));
+  place(dash, samples.filter((s, i) => i % 4 === 0 && i > 4 && i < count - 4 && !s.gap).map((s) => [s.x, (s.y ?? 0) + 0.035, s.z, s.heading, 1, 1, 1, tip(s)]));
 
   // Checkered start/finish line at sample 0
   const sq = MeshBuilder.CreateBox('sq', { width: 1, height: 0.02, depth: 1 }, scene);
@@ -743,25 +919,20 @@ export function buildWorld(scene, track, def, shadows) {
   sqB.material = mat(scene, 'checkB', '#111111', 0.7);
   const s0 = samples[0];
   const wsq = [], bsq = [];
-  const cols = Math.floor(def.width);
+  const cols = Math.round(def.width / 0.8), SQ = def.width / cols; // three rows of squares right across the road
   for (let c = 0; c < cols; c++) {
-    for (let r = 0; r < 2; r++) {
-      const lat = -hw + 0.5 + c, fwd = r - 0.5;
+    for (let r = 0; r < 3; r++) {
+      const lat = -hw + SQ * (c + 0.5), fwd = (r - 1) * SQ;
       const x = s0.x + s0.rx * lat + s0.tx * fwd, z = s0.z + s0.rz * lat + s0.tz * fwd;
-      ((c + r) % 2 ? bsq : wsq).push([x, 0.04, z, s0.heading]);
+      ((c + r) % 2 ? bsq : wsq).push([x, (s0.y ?? 0) + 0.04 + (s0.grade ?? 0) * fwd, z, s0.heading, SQ, 1, SQ, tip(s0)]);
     }
   }
+  for (const fwd of [-1.5 * SQ - 0.25, 1.5 * SQ + 0.25]) wsq.push([s0.x + s0.tx * fwd, (s0.y ?? 0) + 0.04 + (s0.grade ?? 0) * fwd, s0.z + s0.tz * fwd, s0.heading, def.width, 1, 0.3, tip(s0)]);
   place(sq, wsq);
   place(sqB, bsq);
+  // (the start gantry, grandstands and the rest of the race-day dressing are in venue.js)
 
-  // Start gantry
-  const post = MeshBuilder.CreateBox('post', { width: 0.5, height: 6, depth: 0.5 }, scene);
-  post.material = mat(scene, 'gantry', '#2b2f38', 0.4, 0.8);
-  place(post, [-1, 1].map((side) => [s0.x + s0.rx * side * (hw + 2), 3, s0.z + s0.rz * side * (hw + 2), s0.heading]));
-  const banner = MeshBuilder.CreateBox('banner', { width: def.width + 4.5, height: 1.4, depth: 0.4 }, scene);
-  banner.material = mat(scene, 'banner', '#ffcc00', 0.5);
-  banner.position.set(s0.x, 6, s0.z);
-  banner.rotation.y = s0.heading;
+  bridges(scene, track, hw, gy, shadows); // decks on pillars, railings, and the gaps of the leaps
 
   // Lake in the middle of the loop: a sandy shore with still water on top that mirrors the sky
   const lake = def.lake ? lakeOutline(track, hw) : null;
@@ -771,7 +942,7 @@ export function buildWorld(scene, track, def, shadows) {
   }
 
   // Jumps (see addJumps in physics.js) and the building site around them
-  const props = propSet(scene, shadows);
+  const props = propSet(scene, shadows, gy);
   const movers = (track.obstacles ?? []).filter((o) => o.machine); // machines driving across the road
   const built = []; // [x, z, radius] of things the plants must keep clear of
   // glowing lava (shared by lava jumps and the volcano); it pulses, so it is left out of the freeze below
@@ -791,7 +962,7 @@ export function buildWorld(scene, track, def, shadows) {
       lavaJump(scene, s, def, lava, shadows);
       // nothing grows along the lava
       for (let side = -35; side <= 35; side += 10) built.push([s.x + s.rx * side + s.tx * 10, s.z + s.rz * side + s.tz * 10, 16]);
-    } else jump(scene, s, def, props, shadows);
+    } else jump(scene, s, def, props, shadows, !!j.leap);
   }
   if (def.volcano) {
     volcano(scene, def.volcano, lava);
@@ -810,8 +981,9 @@ export function buildWorld(scene, track, def, shadows) {
     const nearJump = (i) => (track.jumps ?? []).some((j) => near(i, j.idx, 45));
     const nearMover = (i) => movers.some((o) => near(i, o.idx, 5)); // where a machine drives across
     // parked machines and stacks of crates beside the road
-    for (let n = 0; n < 14; n++) {
-      const i = Math.floor(((n + siteRand()) / 14) * count), s = samples[i];
+    const parked = def.site.parked ?? 14;
+    for (let n = 0; n < parked; n++) {
+      const i = Math.floor(((n + siteRand()) / parked) * count), s = samples[i];
       const off = (n % 2 ? 1 : -1) * (hw + 11 + siteRand() * 12), x = s.x + s.rx * off, z = s.z + s.rz * off;
       const name = Object.keys(MACHINES)[n % 4];
       if (nearMover(i)) continue;
@@ -823,6 +995,7 @@ export function buildWorld(scene, track, def, shadows) {
       const off = (siteRand() < 0.5 ? 1 : -1) * (hw + 5 + siteRand() * 6), x = s.x + s.rx * off, z = s.z + s.rz * off, yaw = siteRand() * 6.28;
       if (nearMover(i)) continue;
       props.add('box', x, z, yaw, 1.3);
+      built.push([x, z, 2.5]);
       if (n % 2) props.add('box', x + 0.2, z + 0.1, yaw + 0.5, 1.3, 1.3);
       if (n % 3 === 0) props.add('box', x + 1.5, z + 0.3, yaw + 1, 1.3);
     }
@@ -841,6 +1014,21 @@ export function buildWorld(scene, track, def, shadows) {
     }
     built.push([samples[o.idx].x, samples[o.idx].z, hw + 12]); // keep its path clear of trees and rocks
   }
+  // Race-day dressing: gantry, grandstands, fans, flags, boards, tyre walls... (see venue.js)
+  const roadGap = (x, z) => {
+    let near = Infinity;
+    for (let i = 0; i < count; i += 2) near = Math.min(near, (samples[i].x - x) ** 2 + (samples[i].z - z) ** 2);
+    return Math.sqrt(near) - hw;
+  };
+  const axolotls = lands.filter((l) => l.axolotl).map((l) => [l.axolotl.x, l.axolotl.z, 6 * (l.axolotl.size ?? 2)]);
+  const builtGrid = spotGrid(built); // (a quick lookup: by now there are a great many things in `built`)
+  const blocked = (x, z, r = 0) => builtGrid.hit(x, z, r)
+    || axolotls.some(([bx, bz, br]) => Math.hypot(x - bx, z - bz) < br + r) || lake?.covers(x, z, r + 6) || inSea(x, r + 6);
+  // banks along the road (roadside.js): shaped once venue.js has put down everything that needs flat ground
+  const field = roadField(track, hw);
+  const terrain = makeTerrain(track, def, { hw, field, built, landAt, lake, inSea, base: gy });
+  const ground = (x, z, r = 1) => gy(x, z) + terrain.groundAt(x, z, r); // the ground, banks and all
+  const venue = buildVenue(scene, track, def, shadows, { roadGap, built, blocked, props, landAt, field, lake, terrain: { freeze: terrain.freeze, groundAt: ground } });
   props.build();
   movingMachines(scene, movers, track, props.material, shadows);
   roadItems(scene, (track.obstacles ?? []).filter((o) => !o.cross && o.kind !== 'tree'), shadows);
@@ -858,7 +1046,7 @@ export function buildWorld(scene, track, def, shadows) {
       for (let n = 0, tries = 0; n < howMany && tries < howMany * 30; tries++) {
         const s = samples[Math.floor(wild() * count)], off = (wild() < 0.5 ? 1 : -1) * (hw + 9 + wild() * 24);
         const x = s.x + s.rx * off, z = s.z + s.rz * off;
-        if (built.some(([bx, bz, r]) => Math.hypot(x - bx, z - bz) < r + 3)) continue;
+        if (builtGrid.hit(x, z, 3)) continue;
         if (lake?.covers(x, z, 13) || inSea(x, 13)) continue; // not in the water, with room to wander
         if (Math.min(...samples.filter((_, i) => i % 3 === 0).map((p) => Math.hypot(p.x - x, p.z - z))) < hw + 8) continue; // too near another bit of road
         // most of them stand watching the road
@@ -867,17 +1055,13 @@ export function buildWorld(scene, track, def, shadows) {
         n++;
       }
     }
-    addAnimals(scene, shadows, list, def.animals?.birds ?? def.animals?.pterosaurs, def.animals?.pterosaurs ? 'pterosaurs' : 'birds');
+    addAnimals(scene, shadows, list, def.animals?.birds ?? def.animals?.pterosaurs, def.animals?.pterosaurs ? 'pterosaurs' : 'birds', (x, z) => gy(x, z) + terrain.heightAt(x, z));
   }
 
   // Trees, bushes and rocks scattered away from the road
   const rand = rng(1234);
-  const roadGap = (x, z) => {
-    let near = Infinity;
-    for (let i = 0; i < count; i += 3) near = Math.min(near, Math.hypot(samples[i].x - x, samples[i].z - z));
-    return near - hw;
-  };
-  const clearings = [...built, ...lands.filter((l) => l.axolotl).map((l) => [l.axolotl.x, l.axolotl.z, 6 * (l.axolotl.size ?? 2)])];
+  const farCull = []; // [mesh, how far off it is still drawn]
+  const clearings = [...built, ...lands.filter((l) => l.axolotl).map((l) => [l.axolotl.x, l.axolotl.z, 6 * (l.axolotl.size ?? 2)])], clear = spotGrid(clearings);
   lands.forEach((land, k) => {
     // the part of this land that is close enough to the track to be worth planting
     const [x0, x1, z0, z1] = [Math.max(land.area[0], -360), Math.min(land.area[1], 360), Math.max(land.area[2], -300), Math.min(land.area[3], 300)];
@@ -887,37 +1071,69 @@ export function buildWorld(scene, track, def, shadows) {
     if (k === 0) {
       for (const o of roadTrees) {
         const name = land.scenery.trees[0], s = 11 / MODELS[name].height;
-        (spots[name] ??= []).push([o.x, 0, o.z, o.idx, s * 1.25, s, s * 1.25]);
+        (spots[name] ??= []).push([o.x, o.y ?? 0, o.z, o.idx, s * 1.25, s, s * 1.25]);
       }
     }
-    const scatter = (names, howMany, gap, sizeFor) => {
+    // copies go in map-square chunks, so the ones out of view (or far off in the haze) are skipped
+    // (low: bushes and rocks, too small to bother casting shadows)
+    const put = (name, x, z, s, sink = 0.1, low = false) => {
+      const key = `${name}|${Math.floor(x / CHUNK)},${Math.floor(z / CHUNK)}|${low ? 'low' : ''}`;
+      (spots[key] ??= []).push([x, ground(x, z, 1.2) - sink, z, rand() * 6.28, s, s * (0.9 + rand() * 0.25), s]);
+    };
+    const ok = (x, z, r = 0) => !inSea(x, 8) && !lake?.covers(x, z, 7) && landAt(x, z) === land && !clear.hit(x, z, r);
+    // Only the land near the road is planted: further out it is hidden behind the banks and the tree
+    // lines (and lost in the haze), and the ring of far-off scenery in venue.js fills the horizon.
+    const FAR = 120;
+    const scatter = (names, howMany, gap, sizeFor, low = false) => {
       for (let n = 0, tries = 0; n < howMany && tries < howMany * 20; tries++) {
-        const x = x0 + rand() * (x1 - x0), z = z0 + rand() * (z1 - z0);
-        if (inSea(x, 8) || roadGap(x, z) < gap || lake?.covers(x, z, 7)) continue;
-        if (clearings.some(([cx, cz, r]) => Math.hypot(x - cx, z - cz) < r)) continue;
+        // a spot beside a random bit of road, out to FAR from it
+        const q = samples[Math.floor(rand() * count)], off = (rand() < 0.5 ? -1 : 1) * (hw + gap + rand() * (FAR - gap));
+        const x = q.x + q.rx * off, z = q.z + q.rz * off;
+        if (x < x0 || x > x1 || z < z0 || z > z1 || field.gap(x, z, gap + 1) < gap || !ok(x, z)) continue;
         const name = names[Math.floor(rand() * names.length)];
-        const s = sizeFor() / MODELS[name].height;
-        (spots[name] ??= []).push([x, 0, z, rand() * 6.28, s, s * (0.9 + rand() * 0.25), s]);
+        put(name, x, z, sizeFor() / MODELS[name].height, 0.1, low);
         n++;
       }
     };
     const [small, tall] = land.scenery.treeSize ?? [7, 14]; // meters
-    scatter(land.scenery.trees, land.scenery.treeCount ?? Math.round(360 * share), land.scenery.treeGap ?? 14, () => small + rand() * (tall - small));
-    scatter(land.scenery.small, land.scenery.smallCount ?? Math.round(200 * share), 9, () => 0.8 + rand() * 1.6); // bushes and rocks
+    const treeSize = () => small + rand() * (tall - small);
+    scatter(land.scenery.trees, Math.round((land.scenery.treeCount ?? 360 * share) * 0.55), land.scenery.treeGap ?? 14, treeSize);
+    scatter(land.scenery.small, Math.round((land.scenery.smallCount ?? 200 * share) * 0.55), 9, () => 0.8 + rand() * 1.6, true); // bushes and rocks
+    // tree lines hugging the road, up on the banks: they flash past and hide the far distance
+    const ROW = { woods: 6.5, jungle: 8, winter: 8, coast: 11, speedway: 13, desert: 16, site: 26 }[themeOf(land, def)] ?? 12;
+    for (const side of [-1, 1]) for (let d = rand() * ROW; d < track.length; d += ROW * (0.7 + rand() * 0.6)) {
+      const q = samples[Math.floor(d / (track.length / count)) % count], off = hw + SAFE + 5 + rand() ** 1.5 * 14;
+      const x = q.x + q.rx * side * off, z = q.z + q.rz * side * off;
+      if (field.gap(x, z, 20) < SAFE + 4 || !ok(x, z, 2)) continue;
+      const name = land.scenery.trees[Math.floor(rand() * land.scenery.trees.length)];
+      put(name, x, z, treeSize() / MODELS[name].height, 0.3);
+      clearings.push([x, z, 2.5]);
+    }
 
-    const colors = { ...SCENERY_COLORS, ...land.colors }, mats = {};
-    for (const [name, list] of Object.entries(spots)) {
+    // One mesh per model, with each part (leaves, bark...) painted in through vertex colours, so a tree is one
+    // draw call rather than two or three
+    const colors = { ...SCENERY_COLORS, ...land.colors }, shapes = {};
+    const plantMat = mat(scene, 'plants', '#ffffff', 0.9);
+    const shape = (name) => (shapes[name] ??= (() => {
+      const P = [], N = [], C = [];
       for (const [kind, g] of Object.entries(MODELS[name].groups)) {
-        const m = new Mesh(`${name}-${kind}`, scene);
-        const vd = new VertexData();
-        vd.positions = g.pos;
-        vd.normals = g.nor;
-        vd.indices = Array.from({ length: g.pos.length / 3 }, (_, i) => i);
-        vd.applyToMesh(m);
-        m.material = mats[kind] ??= mat(scene, kind, colors[kind], 0.9);
-        place(m, list);
-        shadows.addShadowCaster(m, false);
+        const c = Color3.FromHexString(colors[kind]).toLinearSpace();
+        P.push(...g.pos);
+        N.push(...g.nor);
+        for (let i = 0; i < g.pos.length / 3; i++) C.push(c.r, c.g, c.b, 1);
       }
+      return { P, N, C };
+    })());
+    for (const [key, list] of Object.entries(spots)) {
+      const name = key.split('|')[0], { P, N, C } = shape(name);
+      const m = new Mesh(name, scene), vd = new VertexData();
+      Object.assign(vd, { positions: P, normals: N, colors: C, indices: Array.from({ length: P.length / 3 }, (_, i) => i) });
+      vd.applyToMesh(m);
+      m.material = plantMat;
+      m.isPickable = false;
+      place(m, list);
+      if (!key.endsWith('low')) shadows.addShadowCaster(m, false);
+      if (key.includes('|')) farCull.push([m, key.endsWith('low') ? NEAR_RANGE * 0.6 : NEAR_RANGE]);
     }
 
     // Hot air balloons hanging in the sky, bobbing gently
@@ -939,12 +1155,11 @@ export function buildWorld(scene, track, def, shadows) {
         const s = here[Math.floor(((n + 0.5) / land.snowmen) * here.length)], off = (n % 2 ? 1 : -1) * (hw + 5 + rand() * 4);
         list.push([s.x + s.rx * off, s.z + s.rz * off, s.heading + Math.PI + (n % 2 ? 0.5 : -0.5)]);
       }
-      snowmen(scene, list, shadows);
+      snowmen(scene, list, shadows, gy);
     }
 
     if (land.axolotl) axolotl(scene, land.axolotl, shadows);
   });
-  for (const m of [post, banner]) shadows.addShadowCaster(m, false);
 
   // Signs where the road crosses from one named land into another
   samples.forEach((s, i) => {
@@ -952,8 +1167,13 @@ export function buildWorld(scene, track, def, shadows) {
     if (to.name && from.name !== to.name) stateSign(scene, next, hw, to, shadows);
   });
 
+  // the banks themselves, in each land's own ground
+  for (const m of terrain.build(scene, (land) => groundMat(land, 1, 1), GRASS_TILE)) farCull.push([m, NEAR_RANGE + 120]);
+  cullByDistance(scene, farCull);
+
   hills(scene, rand, 640, 45, 120, 0, landAt);
   hills(scene, rand, 480, 12, 55, 1, landAt);
 
   for (const m of scene.materials) if (m.name !== 'lava') m.freeze();
+  return venue; // { update(raceTime) }: start lights, hopping fans, flags, the blimp...
 }

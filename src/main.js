@@ -54,6 +54,7 @@ function fillPhotos() {
 function show(next) {
   screen = next;
   ui.className = `screen-${screen}`;
+  sound.music('menu'); // the calm tune for home, garage and results (carries on if it's already playing)
   if (screen === 'menu') ui.innerHTML = menuHtml(save, homeHint, (look) => booth.get(look));
   if (screen === 'garage') ui.innerHTML = garageHtml(save, garageTab, garageHint, (look) => booth.get(look));
   if (screen === 'results') ui.innerHTML = resultsHtml(result, save, homeHint, (look) => booth.get(look));
@@ -72,7 +73,7 @@ function startRace() {
   race = new Race(engine, save, makeHud(ui), finishRace);
 }
 
-function finishRace(place, runaway) {
+function finishRace(place, runaway, times) {
   const before = save.wins, levelBefore = save.level;
   save.races++;
   if (place === 1) save.wins++;
@@ -81,7 +82,7 @@ function finishRace(place, runaway) {
   // (a runaway win, with no rival close behind, moves them up two steps)
   save.level = Math.max(0, Math.min(MAX_LEVEL, save.level + (place === 1 ? (runaway ? 2 : 1) : place >= 3 ? -1 : 0)));
   writeSave(save);
-  result = { place, unlocked: unlocksBetween(before, save.wins), levelChange: Math.sign(save.level - levelBefore) };
+  result = { place, unlocked: unlocksBetween(before, save.wins), levelChange: Math.sign(save.level - levelBefore), times };
   homeHint = null;
   endRace();
   show('results');

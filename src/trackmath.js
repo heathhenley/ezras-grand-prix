@@ -85,3 +85,121 @@ export function minSelfClearance(track, minSeparation = 40) {
   }
   return min;
 }
+
+// ---------- heights: hills, bridges and jumps over the road ----------
+// def.heights: [[fraction round the lap 0..1, meters], ...] keyframes, eased smoothly from one to the
+// next (each key is a crest, a dip or a flat bit). Kept as fractions, so rescaling a track's points
+// doesn't break it. def.leaps: [fraction, ...] where the road jumps over a lower bit of itself: a
+// kicker ramp, an open gap, and a landing on the far side.
+// Adds to every sample: y (road height), grade (rise per meter along the road), bridge (a deck on
+// pillars, with railings), gap (no road at all: the open part of a leap) and wall (how far from the
+// middle a car's centre may go). Adds track.groundAt(x, z) for the terrain height anywhere, and
+// track.roadY(idx, x, z) for the road height at a point near sample idx.
+export function addElevation(track, def, hw, wallMargin) {
+  const { samples, count } = track, step = track.length / count;
+  const keys = [...(def.heights ?? [])].sort((a, b) => a[0] - b[0]);
+  const heightAt = (f) => {
+    if (!keys.length) return 0;
+    if (keys.length === 1) return keys[0][1];
+    let k = keys.findIndex(([kf]) => kf > f);
+    const [a, b] = k < 0 ? [keys[keys.length - 1], [keys[0][0] + 1, keys[0][1]]] : k === 0 ? [[keys[keys.length - 1][0] - 1, keys[keys.length - 1][1]], keys[0]] : [keys[k - 1], keys[k]];
+    const u = (f - a[0]) / (b[0] - a[0] || 1), e = u * u * (3 - 2 * u);
+    return a[1] + (b[1] - a[1]) * e;
+  };
+  samples.forEach((s, i) => { s.y = heightAt(i / count); s.bridge = false; s.gap = false; s.wall = hw + wallMargin; });
+  samples.forEach((s, i) => { s.grade = (samples[(i + 1) % count].y - samples[(i - 1 + count) % count].y) / (2 * step); });
+
+  // leaps: the gap is wide enough to clear the road underneath with room to spare
+  const LEAP_HALF = hw + 3; // meters either side of the middle of the gap
+  track.leaps = (def.leaps ?? []).map((f) => {
+    const mid = Math.round(f * count), half = Math.round(LEAP_HALF / step);
+    for (let o = -half; o <= half; o++) samples[(mid + o + count) % count].gap = true;
+    return { lip: (mid - half + count) % count, land: (mid + half + 1) % count };
+  });
+
+  // bridges: wherever the road passes well above another bit of itself, it is a deck on pillars,
+  // and the deck carries on a little past the road below
+  const far = (i, j) => { const d = Math.abs(i - j); return Math.min(d, count - d) > 30; };
+  const over = new Array(count).fill(false), reach = (2 * hw + 14) ** 2;
+  for (let i = 0; i < count; i++) {
+    const s = samples[i];
+    for (let j = 0; j < count; j += 1) {
+      if (!far(i, j)) continue;
+      const t = samples[j];
+      if (s.y - t.y > 3 && (s.x - t.x) ** 2 + (s.z - t.z) ** 2 < reach) { over[i] = true; break; }
+    }
+  }
+  const EXTEND = 12; // samples of deck past the last bit over the road below
+  for (let i = 0; i < count; i++) if (over[i]) for (let o = -EXTEND; o <= EXTEND; o++) { const t = samples[(i + o + count) % count]; if (!t.gap) t.bridge = true; }
+  // railings on the bridges: the invisible wall closes in to them, funnelling in over 50 m either side
+  const RAIL = hw - 0.4, FUNNEL = 25;
+  for (let i = 0; i < count; i++) {
+    if (!samples[i].bridge && !samples[i].gap) continue;
+    for (let o = -FUNNEL; o <= FUNNEL; o++) {
+      const t = samples[(i + o + count) % count];
+      t.wall = Math.min(t.wall, RAIL + (hw + wallMargin - RAIL) * (Math.abs(o) / FUNNEL) ** 1.5);
+    }
+  }
+
+  track.roadY = (idx, x, z) => {
+    const s = samples[idx], along = (x - s.x) * s.tx + (z - s.z) * s.tz;
+    return s.y + s.grade * along;
+  };
+  buildTerrain(track, hw, wallMargin);
+}
+
+// The ground: flat (y = 0) away from the road, rising and falling with it near by, so a road on a hill
+// sits on a grassy hill rather than a wall. Kept as a grid of heights, read back by groundAt.
+function buildTerrain(track, hw, wallMargin) {
+  const { samples } = track;
+  const solid = samples.filter((s) => !s.bridge && !s.gap); // decks and gaps don't hold the ground up
+  if (!samples.some((s) => Math.abs(s.y) > 0.01)) { track.groundAt = () => 0; track.terrain = null; return; }
+  const CELL = 3, MARGIN = 80, R = 70;
+  let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+  for (const s of samples) { x0 = Math.min(x0, s.x); x1 = Math.max(x1, s.x); z0 = Math.min(z0, s.z); z1 = Math.max(z1, s.z); }
+  x0 = Math.floor((x0 - MARGIN) / CELL) * CELL; z0 = Math.floor((z0 - MARGIN) / CELL) * CELL;
+  const nx = Math.ceil((x1 + MARGIN - x0) / CELL) + 1, nz = Math.ceil((z1 + MARGIN - z0) / CELL) + 1;
+  // samples sorted into 20 m buckets, so each grid point only looks at the road near it
+  const B = 20, buckets = new Map(), key = (bx, bz) => bx * 4096 + bz;
+  for (const s of solid) { const k = key(Math.floor(s.x / B), Math.floor(s.z / B)); if (!buckets.has(k)) buckets.set(k, []); buckets.get(k).push(s); }
+  const decks = samples.filter((s) => s.bridge || s.gap); // the ground has to stay down under these
+  const h = new Float32Array(nx * nz), FLAT = hw + wallMargin + 2, EDGE = hw + 2.5;
+  for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) {
+    const x = x0 + i * CELL, z = z0 + j * CELL;
+    let sw = 0, sy = 0, near = Infinity, nearS = null;
+    const bx = Math.floor(x / B), bz = Math.floor(z / B), reachB = Math.ceil(R / B);
+    for (let a = -reachB; a <= reachB; a++) for (let b = -reachB; b <= reachB; b++) {
+      const list = buckets.get(key(bx + a, bz + b));
+      if (!list) continue;
+      for (const s of list) {
+        const d2 = (s.x - x) ** 2 + (s.z - z) ** 2;
+        if (d2 > R * R) continue;
+        const w = 1 / (d2 + 4) ** 2;
+        sw += w; sy += w * s.y;
+        if (d2 < near) { near = d2; nearS = s; }
+      }
+    }
+    if (!nearS) continue;
+    near = Math.sqrt(near);
+    const local = sy / sw; // the height of the road round here
+    let y;
+    if (near < EDGE) {
+      // right by the road: just under it, so the road never sinks in or floats over a gap
+      y = nearS.y + nearS.grade * ((x - nearS.x) * nearS.tx + (z - nearS.z) * nearS.tz) - 0.05;
+    } else {
+      const fall = FLAT + 10 + 2.5 * Math.abs(local), u = Math.max(0, Math.min(1, (near - FLAT) / (fall - FLAT)));
+      y = local * (1 - u * u * (3 - 2 * u));
+    }
+    for (const s of decks) {
+      if (Math.abs(s.x - x) < hw + 4 && Math.abs(s.z - z) < hw + 4 && (s.x - x) ** 2 + (s.z - z) ** 2 < (hw + 4) ** 2) y = Math.min(y, s.y - 1.8);
+    }
+    h[j * nx + i] = y;
+  }
+  track.terrain = { x0, z0, nx, nz, cell: CELL, h };
+  track.groundAt = (x, z) => {
+    const fx = (x - x0) / CELL, fz = (z - z0) / CELL, i = Math.floor(fx), j = Math.floor(fz);
+    if (i < 0 || j < 0 || i >= nx - 1 || j >= nz - 1) return 0;
+    const u = fx - i, v = fz - j, k = j * nx + i;
+    return (h[k] * (1 - u) + h[k + 1] * u) * (1 - v) + (h[k + nx] * (1 - u) + h[k + nx + 1] * u) * v;
+  };
+}
